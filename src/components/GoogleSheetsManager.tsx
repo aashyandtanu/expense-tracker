@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Cloud, CloudOff, Download, Upload, Calendar, FileSpreadsheet, AlertCircle, CheckCircle, Loader, ExternalLink, Copy, Eye, EyeOff } from 'lucide-react';
+import { Cloud, CloudOff, Download, Upload, Calendar, FileSpreadsheet, AlertCircle, CheckCircle, Loader, ExternalLink, Copy, Eye, EyeOff, BarChart3 } from 'lucide-react';
 import { Transaction } from '../types';
 import {
   loadGoogleSheetsConfig,
@@ -8,6 +8,7 @@ import {
   signOutGoogle,
   saveTransactionsToGoogleSheets,
   loadTransactionsFromGoogleSheets,
+  loadTransactionsFromMultipleMonths,
   getAvailableMonths,
   exportTransactionsToExcel,
   GoogleSheetsConfig,
@@ -31,10 +32,11 @@ export function GoogleSheetsManager({
   const [isInitializing, setIsInitializing] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [availableMonths, setAvailableMonths] = useState<string[]>([]);
-  const [loadMonth, setLoadMonth] = useState('');
   const [loadYear, setLoadYear] = useState(new Date().getFullYear());
   const [saveMonth, setSaveMonth] = useState('');
   const [saveYear, setSaveYear] = useState(new Date().getFullYear());
+  const [selectedMonths, setSelectedMonths] = useState<string[]>([]);
+  const [loadMode, setLoadMode] = useState<'single' | 'multiple' | 'year'>('single');
   const [status, setStatus] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
   const [showSetup, setShowSetup] = useState(false);
   const [credentials, setCredentials] = useState({
@@ -47,6 +49,8 @@ export function GoogleSheetsManager({
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'
   ];
+
+  const years = Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - i);
 
   useEffect(() => {
     const savedConfig = loadGoogleSheetsConfig();
@@ -132,8 +136,9 @@ export function GoogleSheetsManager({
     setIsLoading(true);
     try {
       const months = await getAvailableMonths(loadYear);
-      setAvailableMonths(months);
-      showStatus('info', `Found ${months.length} months for ${loadYear}`);
+      const filteredMonths = months.filter(month => month !== 'Analytics');
+      setAvailableMonths(filteredMonths);
+      showStatus('info', `Found ${filteredMonths.length} months for ${loadYear}`);
     } catch (error) {
       console.error('Failed to load months:', error);
       showStatus('error', 'Failed to load available months');
@@ -143,13 +148,36 @@ export function GoogleSheetsManager({
   };
 
   const handleLoadTransactions = async () => {
-    if (!config.isConnected || !loadMonth) return;
+    if (!config.isConnected) return;
 
     setIsLoading(true);
     try {
-      const loadedTransactions = await loadTransactionsFromGoogleSheets(loadYear, loadMonth);
+      let loadedTransactions: Transaction[] = [];
+      
+      if (loadMode === 'year') {
+        // Load all months from the year
+        const allMonths = availableMonths.filter(month => month !== 'Analytics');
+        loadedTransactions = await loadTransactionsFromMultipleMonths(loadYear, allMonths);
+        showStatus('success', `Loaded ${loadedTransactions.length} transactions from entire year ${loadYear}`);
+      } else if (loadMode === 'multiple') {
+        // Load selected months
+        if (selectedMonths.length === 0) {
+          showStatus('error', 'Please select at least one month');
+          return;
+        }
+        loadedTransactions = await loadTransactionsFromMultipleMonths(loadYear, selectedMonths);
+        showStatus('success', `Loaded ${loadedTransactions.length} transactions from ${selectedMonths.length} months`);
+      } else {
+        // Load single month
+        if (selectedMonths.length === 0) {
+          showStatus('error', 'Please select a month');
+          return;
+        }
+        loadedTransactions = await loadTransactionsFromGoogleSheets(loadYear, selectedMonths[0]);
+        showStatus('success', `Loaded ${loadedTransactions.length} transactions from ${selectedMonths[0]} ${loadYear}`);
+      }
+      
       onTransactionsLoaded(loadedTransactions);
-      showStatus('success', `Loaded ${loadedTransactions.length} transactions from ${loadMonth} ${loadYear}`);
     } catch (error) {
       console.error('Failed to load transactions:', error);
       showStatus('error', 'Failed to load transactions from Google Sheets');
@@ -164,7 +192,7 @@ export function GoogleSheetsManager({
     setIsLoading(true);
     try {
       await saveTransactionsToGoogleSheets(transactions, saveYear, saveMonth);
-      showStatus('success', `Saved ${transactions.length} transactions to ${saveMonth} ${saveYear}`);
+      showStatus('success', `Saved ${transactions.length} transactions to ${saveMonth} ${saveYear} with analytics charts`);
     } catch (error) {
       console.error('Failed to save transactions:', error);
       showStatus('error', 'Failed to save transactions to Google Sheets');
@@ -187,6 +215,18 @@ export function GoogleSheetsManager({
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     showStatus('success', 'Copied to clipboard!');
+  };
+
+  const handleMonthSelection = (month: string) => {
+    if (loadMode === 'single') {
+      setSelectedMonths([month]);
+    } else {
+      setSelectedMonths(prev => 
+        prev.includes(month) 
+          ? prev.filter(m => m !== month)
+          : [...prev, month]
+      );
+    }
   };
 
   return (
@@ -420,15 +460,15 @@ export function GoogleSheetsManager({
           <CloudOff className="h-16 w-16 mx-auto text-gray-300 mb-4" />
           <h3 className="text-lg font-medium text-gray-900 mb-2">Connect to Google Sheets</h3>
           <p className="text-gray-600 mb-4">
-            Store your transactions in Google Sheets organized by year and month.
-            Each year gets its own spreadsheet with monthly sheets.
+            Store your transactions in Google Sheets organized by year and month with automatic analytics charts.
           </p>
           <div className="bg-gray-50 rounded-lg p-4 text-left">
-            <h4 className="font-medium text-gray-900 mb-2">How it works:</h4>
+            <h4 className="font-medium text-gray-900 mb-2">Enhanced Features:</h4>
             <ul className="text-sm text-gray-600 space-y-1">
-              <li>• Creates one spreadsheet per year (e.g., "Expense Tracker 2024")</li>
-              <li>• Each month gets its own sheet within the yearly spreadsheet</li>
-              <li>• Load specific months when needed - keeps the app lightweight</li>
+              <li>• Creates one spreadsheet per year with monthly sheets</li>
+              <li>• Automatic analytics sheet with pie charts and bar graphs</li>
+              <li>• Load single month, multiple months, or entire year</li>
+              <li>• Real-time analytics refresh when loading data</li>
               <li>• Export to Excel for offline backup</li>
               <li>• All data syncs across devices</li>
             </ul>
@@ -443,6 +483,54 @@ export function GoogleSheetsManager({
               Load Transactions from Google Sheets
             </h3>
             
+            {/* Load Mode Selection */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Load Mode
+              </label>
+              <div className="flex gap-4">
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    value="single"
+                    checked={loadMode === 'single'}
+                    onChange={(e) => {
+                      setLoadMode(e.target.value as any);
+                      setSelectedMonths([]);
+                    }}
+                    className="mr-2"
+                  />
+                  <span className="text-sm">Single Month</span>
+                </label>
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    value="multiple"
+                    checked={loadMode === 'multiple'}
+                    onChange={(e) => {
+                      setLoadMode(e.target.value as any);
+                      setSelectedMonths([]);
+                    }}
+                    className="mr-2"
+                  />
+                  <span className="text-sm">Multiple Months</span>
+                </label>
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    value="year"
+                    checked={loadMode === 'year'}
+                    onChange={(e) => {
+                      setLoadMode(e.target.value as any);
+                      setSelectedMonths([]);
+                    }}
+                    className="mr-2"
+                  />
+                  <span className="text-sm">Entire Year</span>
+                </label>
+              </div>
+            </div>
+            
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -453,7 +541,7 @@ export function GoogleSheetsManager({
                   onChange={(e) => setLoadYear(parseInt(e.target.value))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(year => (
+                  {years.map(year => (
                     <option key={year} value={year}>{year}</option>
                   ))}
                 </select>
@@ -463,41 +551,62 @@ export function GoogleSheetsManager({
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Available Months
                 </label>
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleLoadMonths}
-                    disabled={isLoading}
-                    className="px-3 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50 text-sm"
-                  >
-                    {isLoading ? 'Loading...' : 'Refresh'}
-                  </button>
-                  <select
-                    value={loadMonth}
-                    onChange={(e) => setLoadMonth(e.target.value)}
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    disabled={availableMonths.length === 0}
-                  >
-                    <option value="">Select month</option>
-                    {availableMonths.map(month => (
-                      <option key={month} value={month}>{month}</option>
-                    ))}
-                  </select>
-                </div>
+                <button
+                  onClick={handleLoadMonths}
+                  disabled={isLoading}
+                  className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50 text-sm"
+                >
+                  {isLoading ? 'Loading...' : 'Refresh Months'}
+                </button>
               </div>
               
               <div className="flex items-end">
                 <button
                   onClick={handleLoadTransactions}
-                  disabled={!loadMonth || isLoading}
-                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                  disabled={isLoading || (loadMode !== 'year' && selectedMonths.length === 0)}
+                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                  {isLoading ? 'Loading...' : 'Load Transactions'}
+                  {isLoading ? (
+                    <Loader className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <BarChart3 className="h-4 w-4" />
+                  )}
+                  {isLoading ? 'Loading...' : 'Load & Refresh Analytics'}
                 </button>
               </div>
             </div>
+
+            {/* Month Selection */}
+            {loadMode !== 'year' && availableMonths.length > 0 && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  {loadMode === 'single' ? 'Select Month' : 'Select Months'}
+                </label>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  {availableMonths.map(month => (
+                    <label key={month} className="flex items-center">
+                      <input
+                        type={loadMode === 'single' ? 'radio' : 'checkbox'}
+                        name="month"
+                        value={month}
+                        checked={selectedMonths.includes(month)}
+                        onChange={() => handleMonthSelection(month)}
+                        className="mr-2"
+                      />
+                      <span className="text-sm">{month}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
             
             <p className="text-xs text-gray-500">
-              This will replace current transactions with data from the selected month.
+              {loadMode === 'year' 
+                ? 'This will load all transactions from the selected year and refresh analytics.'
+                : loadMode === 'multiple'
+                ? 'This will load transactions from selected months and refresh analytics.'
+                : 'This will load transactions from the selected month and refresh analytics.'
+              }
             </p>
           </div>
 
@@ -518,7 +627,7 @@ export function GoogleSheetsManager({
                   onChange={(e) => setSaveYear(parseInt(e.target.value))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
                 >
-                  {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(year => (
+                  {years.map(year => (
                     <option key={year} value={year}>{year}</option>
                   ))}
                 </select>
@@ -544,15 +653,20 @@ export function GoogleSheetsManager({
                 <button
                   onClick={handleSaveTransactions}
                   disabled={!saveMonth || transactions.length === 0 || isLoading}
-                  className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
+                  className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                  {isLoading ? 'Saving...' : `Save ${transactions.length} Transactions`}
+                  {isLoading ? (
+                    <Loader className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <BarChart3 className="h-4 w-4" />
+                  )}
+                  {isLoading ? 'Saving...' : `Save ${transactions.length} + Charts`}
                 </button>
               </div>
             </div>
             
             <p className="text-xs text-gray-500">
-              This will overwrite existing data in the selected month sheet.
+              This will save transactions to the selected month and update analytics with charts.
             </p>
           </div>
 
@@ -585,12 +699,13 @@ export function GoogleSheetsManager({
 
           {/* Usage Tips */}
           <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-            <h4 className="font-medium text-blue-900 mb-2">💡 Usage Tips</h4>
+            <h4 className="font-medium text-blue-900 mb-2">💡 Enhanced Features</h4>
             <ul className="text-sm text-blue-800 space-y-1">
-              <li>• Use this tool monthly to save your transactions to Google Sheets</li>
-              <li>• Load specific months when you need to review historical data</li>
-              <li>• Export to Excel for offline analysis or backup</li>
-              <li>• Each year gets its own spreadsheet for better organization</li>
+              <li>• Automatic analytics sheet with pie charts and bar graphs</li>
+              <li>• Load single month, multiple months, or entire year at once</li>
+              <li>• Analytics automatically refresh when loading transactions</li>
+              <li>• Charts show monthly income vs expenses and category breakdowns</li>
+              <li>• Source column removed for cleaner Google Sheets data</li>
               <li>• Data is automatically formatted with currency and proper headers</li>
             </ul>
           </div>

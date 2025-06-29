@@ -1,7 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, Save, X, Settings } from 'lucide-react';
+import { Plus, Edit2, Trash2, Save, X, Settings, RotateCcw } from 'lucide-react';
 import { CustomMapping } from '../types';
-import { loadCustomMappings, saveCustomMappings, getAllCategories, defaultCategoryMappings } from '../utils/categoryMappings';
+import { 
+  loadCustomMappings, 
+  saveCustomMappings, 
+  getAllCategories, 
+  getCurrentDefaultMappings,
+  updateDefaultMappings,
+  resetDefaultMappings,
+  BASE_DEFAULT_MAPPINGS as defaultCategoryMappings
+} from '../utils/categoryMappings';
 
 interface MappingManagerProps {
   isOpen: boolean;
@@ -17,28 +25,54 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
   const [newMapping, setNewMapping] = useState({ keyword: '', category: '' });
   const [showAddForm, setShowAddForm] = useState(false);
   const [categories] = useState(getAllCategories());
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
-      setCustomMappings(loadCustomMappings());
-      setDefaultMappings({ ...defaultCategoryMappings });
+      loadMappings();
     }
   }, [isOpen]);
 
+  const loadMappings = () => {
+    setCustomMappings(loadCustomMappings());
+    setDefaultMappings(getCurrentDefaultMappings());
+    setHasUnsavedChanges(false);
+  };
+
   const handleSave = () => {
-    saveCustomMappings(customMappings);
-    // Save modified default mappings
-    localStorage.setItem('expense-tracker-default-mappings', JSON.stringify(defaultMappings));
-    onMappingsUpdated();
-    onClose();
+    try {
+      // Save custom mappings
+      saveCustomMappings(customMappings);
+      
+      // Save default mappings modifications
+      updateDefaultMappings(defaultMappings);
+      
+      setHasUnsavedChanges(false);
+      onMappingsUpdated();
+      onClose();
+    } catch (error) {
+      console.error('Error saving mappings:', error);
+      alert('Failed to save mappings. Please try again.');
+    }
   };
 
   const handleAddMapping = () => {
     if (!newMapping.keyword.trim() || !newMapping.category.trim()) return;
 
+    const keyword = newMapping.keyword.trim().toLowerCase();
+    
+    // Check if keyword already exists in defaults or customs
+    const existsInDefaults = defaultMappings.hasOwnProperty(keyword);
+    const existsInCustoms = customMappings.some(m => m.keyword.toLowerCase() === keyword);
+    
+    if (existsInDefaults || existsInCustoms) {
+      alert('This keyword already exists. Please use a different keyword or edit the existing one.');
+      return;
+    }
+
     const mapping: CustomMapping = {
-      id: `custom-${Date.now()}`,
-      keyword: newMapping.keyword.trim().toLowerCase(),
+      id: `custom-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      keyword: keyword,
       category: newMapping.category.trim(),
       isActive: true,
       createdAt: new Date().toISOString(),
@@ -47,34 +81,63 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
     setCustomMappings(prev => [...prev, mapping]);
     setNewMapping({ keyword: '', category: '' });
     setShowAddForm(false);
+    setHasUnsavedChanges(true);
   };
 
   const handleEditMapping = (id: string, field: 'keyword' | 'category', value: string) => {
     setCustomMappings(prev => prev.map(mapping =>
-      mapping.id === id ? { ...mapping, [field]: value } : mapping
+      mapping.id === id ? { ...mapping, [field]: field === 'keyword' ? value.toLowerCase() : value } : mapping
     ));
+    setHasUnsavedChanges(true);
   };
 
   const handleEditDefaultMapping = (keyword: string, category: string) => {
     setDefaultMappings(prev => ({ ...prev, [keyword]: category }));
+    setHasUnsavedChanges(true);
   };
 
   const handleDeleteDefaultMapping = (keyword: string) => {
-    setDefaultMappings(prev => {
-      const newMappings = { ...prev };
-      delete newMappings[keyword];
-      return newMappings;
-    });
+    if (confirm(`Are you sure you want to delete the mapping for "${keyword}"?`)) {
+      setDefaultMappings(prev => {
+        const newMappings = { ...prev };
+        delete newMappings[keyword];
+        return newMappings;
+      });
+      setHasUnsavedChanges(true);
+    }
   };
 
   const handleToggleActive = (id: string) => {
     setCustomMappings(prev => prev.map(mapping =>
       mapping.id === id ? { ...mapping, isActive: !mapping.isActive } : mapping
     ));
+    setHasUnsavedChanges(true);
   };
 
   const handleDeleteMapping = (id: string) => {
-    setCustomMappings(prev => prev.filter(mapping => mapping.id !== id));
+    if (confirm('Are you sure you want to delete this custom mapping?')) {
+      setCustomMappings(prev => prev.filter(mapping => mapping.id !== id));
+      setHasUnsavedChanges(true);
+    }
+  };
+
+  const handleResetDefaults = () => {
+    if (confirm('Are you sure you want to reset all default mappings to their original state? This will remove all your modifications to default mappings.')) {
+      resetDefaultMappings();
+      setDefaultMappings({ ...defaultCategoryMappings });
+      setHasUnsavedChanges(true);
+    }
+  };
+
+  const handleCancel = () => {
+    if (hasUnsavedChanges) {
+      if (confirm('You have unsaved changes. Are you sure you want to cancel?')) {
+        loadMappings(); // Reload original data
+        onClose();
+      }
+    } else {
+      onClose();
+    }
   };
 
   // Group default mappings by category
@@ -95,9 +158,14 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
           <div className="flex items-center gap-3">
             <Settings className="h-6 w-6 text-blue-600" />
             <h2 className="text-xl font-semibold text-gray-900">Category Mappings</h2>
+            {hasUnsavedChanges && (
+              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                Unsaved Changes
+              </span>
+            )}
           </div>
           <button
-            onClick={onClose}
+            onClick={handleCancel}
             className="p-1 hover:bg-gray-100 rounded-full transition-colors"
           >
             <X className="h-5 w-5 text-gray-500" />
@@ -110,13 +178,23 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
               Manage how transaction descriptions are automatically categorized. Keywords are matched against transaction descriptions (case-insensitive).
             </p>
             
-            <button
-              onClick={() => setShowAddForm(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <Plus className="h-4 w-4" />
-              Add Custom Mapping
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowAddForm(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                <Plus className="h-4 w-4" />
+                Add Custom Mapping
+              </button>
+              
+              <button
+                onClick={handleResetDefaults}
+                className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+              >
+                <RotateCcw className="h-4 w-4" />
+                Reset Defaults
+              </button>
+            </div>
           </div>
 
           {showAddForm && (
@@ -154,7 +232,8 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
               <div className="flex gap-2 mt-4">
                 <button
                   onClick={handleAddMapping}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  disabled={!newMapping.keyword.trim() || !newMapping.category.trim()}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
                 >
                   Add Mapping
                 </button>
@@ -197,15 +276,18 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
                               type="text"
                               value={keyword}
                               onChange={(e) => {
-                                const newKeyword = e.target.value;
-                                const oldCategory = defaultMappings[keyword];
-                                setDefaultMappings(prev => {
-                                  const newMappings = { ...prev };
-                                  delete newMappings[keyword];
-                                  newMappings[newKeyword] = oldCategory;
-                                  return newMappings;
-                                });
-                                setEditingDefault(newKeyword);
+                                const newKeyword = e.target.value.toLowerCase();
+                                if (newKeyword !== keyword) {
+                                  const oldCategory = defaultMappings[keyword];
+                                  setDefaultMappings(prev => {
+                                    const newMappings = { ...prev };
+                                    delete newMappings[keyword];
+                                    newMappings[newKeyword] = oldCategory;
+                                    return newMappings;
+                                  });
+                                  setEditingDefault(newKeyword);
+                                  setHasUnsavedChanges(true);
+                                }
                               }}
                               className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
                             />
@@ -361,18 +443,31 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
               )}
             </div>
           </div>
+
+          {/* Warning about unsaved changes */}
+          {hasUnsavedChanges && (
+            <div className="mt-6 bg-orange-50 rounded-lg p-4 border border-orange-200">
+              <div className="flex items-center gap-2">
+                <span className="text-orange-600">⚠️</span>
+                <span className="text-sm text-orange-800 font-medium">
+                  You have unsaved changes. Make sure to save before closing.
+                </span>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end gap-3 p-6 border-t border-gray-200">
           <button
-            onClick={onClose}
+            onClick={handleCancel}
             className="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={handleSave}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            disabled={!hasUnsavedChanges}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
           >
             Save Changes
           </button>

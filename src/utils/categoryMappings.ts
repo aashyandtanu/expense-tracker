@@ -1,6 +1,7 @@
 import { CategoryMapping, CustomMapping } from '../types';
 
-let defaultCategoryMappings: CategoryMapping = {
+// Base default mappings - these should never be modified directly
+const BASE_DEFAULT_MAPPINGS: CategoryMapping = {
   // Food & Dining
   'zomato': 'Food & Dining',
   'swiggy': 'Food & Dining',
@@ -106,44 +107,116 @@ export const categoryColors: { [key: string]: string } = {
   'Miscellaneous': '#B2BEC3',
 };
 
-// Load and apply modified default mappings
-function loadDefaultMappings(): CategoryMapping {
+// Load modified default mappings from localStorage
+function loadModifiedDefaultMappings(): CategoryMapping {
   try {
     const saved = localStorage.getItem('expense-tracker-default-mappings');
     if (saved) {
-      const modifiedDefaults = JSON.parse(saved);
-      return { ...defaultCategoryMappings, ...modifiedDefaults };
+      const modifications = JSON.parse(saved);
+      // Only apply modifications that exist in the base mappings
+      const validModifications: CategoryMapping = {};
+      Object.keys(modifications).forEach(keyword => {
+        if (BASE_DEFAULT_MAPPINGS.hasOwnProperty(keyword)) {
+          validModifications[keyword] = modifications[keyword];
+        }
+      });
+      return { ...BASE_DEFAULT_MAPPINGS, ...validModifications };
     }
-  } catch {
-    // Ignore errors and use original defaults
+  } catch (error) {
+    console.error('Error loading modified default mappings:', error);
+    // Clear corrupted data
+    localStorage.removeItem('expense-tracker-default-mappings');
   }
-  return defaultCategoryMappings;
+  return { ...BASE_DEFAULT_MAPPINGS };
 }
 
-// Initialize with potentially modified defaults
-defaultCategoryMappings = loadDefaultMappings();
+// Save only the modifications to default mappings
+function saveModifiedDefaultMappings(mappings: CategoryMapping): void {
+  try {
+    const modifications: CategoryMapping = {};
+    
+    // Only save mappings that differ from base defaults
+    Object.keys(mappings).forEach(keyword => {
+      if (BASE_DEFAULT_MAPPINGS.hasOwnProperty(keyword) && 
+          mappings[keyword] !== BASE_DEFAULT_MAPPINGS[keyword]) {
+        modifications[keyword] = mappings[keyword];
+      }
+    });
+    
+    // Save deletions as null values
+    Object.keys(BASE_DEFAULT_MAPPINGS).forEach(keyword => {
+      if (!mappings.hasOwnProperty(keyword)) {
+        modifications[keyword] = null as any; // Mark as deleted
+      }
+    });
+    
+    localStorage.setItem('expense-tracker-default-mappings', JSON.stringify(modifications));
+  } catch (error) {
+    console.error('Error saving modified default mappings:', error);
+  }
+}
 
 // Load custom mappings from localStorage
 export function loadCustomMappings(): CustomMapping[] {
   try {
     const saved = localStorage.getItem('expense-tracker-custom-mappings');
-    return saved ? JSON.parse(saved) : [];
-  } catch {
-    return [];
+    if (saved) {
+      const mappings = JSON.parse(saved);
+      // Validate the structure
+      if (Array.isArray(mappings)) {
+        return mappings.filter(mapping => 
+          mapping && 
+          typeof mapping === 'object' && 
+          mapping.id && 
+          mapping.keyword && 
+          mapping.category
+        );
+      }
+    }
+  } catch (error) {
+    console.error('Error loading custom mappings:', error);
+    // Clear corrupted data
+    localStorage.removeItem('expense-tracker-custom-mappings');
   }
+  return [];
 }
 
 // Save custom mappings to localStorage
 export function saveCustomMappings(mappings: CustomMapping[]): void {
-  localStorage.setItem('expense-tracker-custom-mappings', JSON.stringify(mappings));
+  try {
+    // Validate mappings before saving
+    const validMappings = mappings.filter(mapping => 
+      mapping && 
+      typeof mapping === 'object' && 
+      mapping.id && 
+      mapping.keyword && 
+      mapping.category &&
+      typeof mapping.isActive === 'boolean'
+    );
+    
+    localStorage.setItem('expense-tracker-custom-mappings', JSON.stringify(validMappings));
+  } catch (error) {
+    console.error('Error saving custom mappings:', error);
+  }
 }
 
-// Get combined mappings (default + custom)
+// Get current default mappings (base + modifications)
+export function getCurrentDefaultMappings(): CategoryMapping {
+  return loadModifiedDefaultMappings();
+}
+
+// Update default mappings (used by MappingManager)
+export function updateDefaultMappings(mappings: CategoryMapping): void {
+  saveModifiedDefaultMappings(mappings);
+}
+
+// Get combined mappings (default + custom) for categorization
 export function getCombinedMappings(): CategoryMapping {
-  const modifiedDefaults = loadDefaultMappings();
+  const defaultMappings = loadModifiedDefaultMappings();
   const customMappings = loadCustomMappings();
-  const combined = { ...modifiedDefaults };
+  const combined = { ...defaultMappings };
   
+  // Apply active custom mappings (they override defaults)
   customMappings
     .filter(mapping => mapping.isActive)
     .forEach(mapping => {
@@ -153,6 +226,7 @@ export function getCombinedMappings(): CategoryMapping {
   return combined;
 }
 
+// Categorize transaction using combined mappings
 export function categorizeTransaction(description: string): string {
   const lowerDescription = description.toLowerCase();
   const mappings = getCombinedMappings();
@@ -184,14 +258,30 @@ export function categorizeTransaction(description: string): string {
   return 'Miscellaneous';
 }
 
-// Get all available categories
+// Get all available categories (from defaults, custom mappings, and colors)
 export function getAllCategories(): string[] {
-  const modifiedDefaults = loadDefaultMappings();
-  const defaultCategories = [...new Set(Object.values(modifiedDefaults))];
+  const defaultMappings = loadModifiedDefaultMappings();
   const customMappings = loadCustomMappings();
+  
+  // Get categories from default mappings
+  const defaultCategories = [...new Set(Object.values(defaultMappings))];
+  
+  // Get categories from custom mappings
   const customCategories = [...new Set(customMappings.map(m => m.category))];
   
-  return [...new Set([...defaultCategories, ...customCategories])].sort();
+  // Get categories from color definitions (ensures we don't lose any)
+  const colorCategories = Object.keys(categoryColors);
+  
+  // Combine all categories and remove duplicates
+  const allCategories = [...new Set([...defaultCategories, ...customCategories, ...colorCategories])];
+  
+  return allCategories.sort();
 }
 
-export { defaultCategoryMappings }
+// Reset default mappings to base state
+export function resetDefaultMappings(): void {
+  localStorage.removeItem('expense-tracker-default-mappings');
+}
+
+// Export the base default mappings for reference
+export { BASE_DEFAULT_MAPPINGS as defaultCategoryMappings };

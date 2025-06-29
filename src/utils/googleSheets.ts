@@ -8,6 +8,12 @@ export interface GoogleSheetsConfig {
   expiresAt?: number;
 }
 
+interface GoogleCredentials {
+  clientId: string;
+  apiKey: string;
+  timestamp: number;
+}
+
 let tokenClient: any;
 
 // Load Google Sheets configuration
@@ -28,22 +34,46 @@ export function saveGoogleSheetsConfig(config: GoogleSheetsConfig): void {
   );
 }
 
-// Save Google credentials
+// Save Google credentials with timestamp (secure with 1-day timeout)
 export function saveGoogleCredentials(clientId: string, apiKey: string): void {
-  const credentials = { clientId, apiKey };
+  const credentials: GoogleCredentials = { 
+    clientId, 
+    apiKey, 
+    timestamp: Date.now() 
+  };
   localStorage.setItem(
     "google-sheets-credentials",
     JSON.stringify(credentials)
   );
 }
 
-// Get Google credentials
+// Get Google credentials with timeout check
 function getGoogleCredentials(): { clientId: string; apiKey: string } | null {
   try {
     const saved = localStorage.getItem("google-sheets-credentials");
-    return saved ? JSON.parse(saved) : null;
+    if (!saved) return null;
+    
+    const credentials: GoogleCredentials = JSON.parse(saved);
+    
+    // Check if credentials are older than 1 day (24 hours)
+    const oneDayInMs = 24 * 60 * 60 * 1000;
+    if (Date.now() - credentials.timestamp > oneDayInMs) {
+      // Credentials expired, remove them
+      localStorage.removeItem("google-sheets-credentials");
+      return null;
+    }
+    
+    return { clientId: credentials.clientId, apiKey: credentials.apiKey };
   } catch {
     return null;
+  }
+}
+
+// Clear expired credentials
+export function clearExpiredCredentials(): void {
+  const credentials = getGoogleCredentials();
+  if (!credentials) {
+    localStorage.removeItem("google-sheets-credentials");
   }
 }
 
@@ -53,7 +83,7 @@ export async function initializeGoogleSheetsAPI(): Promise<boolean> {
     const credentials = getGoogleCredentials();
     if (!credentials || !credentials.clientId || !credentials.apiKey) {
       throw new Error(
-        "Google API credentials not found. Please set up credentials first."
+        "Google API credentials not found or expired. Please set up credentials again."
       );
     }
 
@@ -148,6 +178,12 @@ export async function authenticateGoogle(): Promise<GoogleSheetsConfig> {
 export function signOutGoogle(): void {
   const config: GoogleSheetsConfig = { isConnected: false };
   saveGoogleSheetsConfig(config);
+}
+
+// Get month name from date
+function getMonthFromDate(dateString: string): string {
+  const date = new Date(dateString);
+  return date.toLocaleDateString('en-US', { month: 'long' });
 }
 
 // Create or get spreadsheet for the year
@@ -303,67 +339,86 @@ async function getSheetId(
   return sheet?.properties?.sheetId || 0;
 }
 
-// Save transactions to Google Sheets
+// Save transactions to Google Sheets (organized by month based on transaction date)
 export async function saveTransactionsToGoogleSheets(
   transactions: Transaction[],
   year: number,
-  month: string
+  targetMonth?: string
 ): Promise<void> {
   try {
     const spreadsheetId = await getOrCreateYearlySpreadsheet(year);
-    await getOrCreateMonthlySheet(spreadsheetId, month);
 
-    // Clear existing data (except headers)
-    await window.gapi.client.sheets.spreadsheets.values.clear({
-      spreadsheetId: spreadsheetId,
-      range: `${month}!A2:E`,
-    });
+    // Group transactions by month based on their date
+    const transactionsByMonth = transactions.reduce((acc, transaction) => {
+      const month = getMonthFromDate(transaction.date);
+      if (!acc[month]) {
+        acc[month] = [];
+      }
+      acc[month].push(transaction);
+      return acc;
+    }, {} as Record<string, Transaction[]>);
 
-    if (transactions.length === 0) return;
+    // If targetMonth is specified, only save to that month
+    const monthsToProcess = targetMonth 
+      ? { [targetMonth]: transactionsByMonth[targetMonth] || [] }
+      : transactionsByMonth;
 
-    // Prepare data for Google Sheets (removed source column)
-    const values = transactions.map((transaction) => [
-      transaction.date,
-      transaction.description,
-      transaction.amount,
-      transaction.type === "credit" ? "Credit" : "Debit",
-      transaction.category,
-    ]);
+    // Process each month
+    for (const [month, monthTransactions] of Object.entries(monthsToProcess)) {
+      if (!monthTransactions || monthTransactions.length === 0) continue;
 
-    // Write data to sheet
-    await window.gapi.client.sheets.spreadsheets.values.update({
-      spreadsheetId: spreadsheetId,
-      range: `${month}!A2:E${values.length + 1}`,
-      valueInputOption: "RAW",
-      values: values,
-    });
+      await getOrCreateMonthlySheet(spreadsheetId, month);
 
-    // Format amount column as currency
-    await window.gapi.client.sheets.spreadsheets.batchUpdate({
-      spreadsheetId: spreadsheetId,
-      requests: [
-        {
-          repeatCell: {
-            range: {
-              sheetId: await getSheetId(spreadsheetId, month),
-              startRowIndex: 1,
-              endRowIndex: values.length + 1,
-              startColumnIndex: 2,
-              endColumnIndex: 3,
-            },
-            cell: {
-              userEnteredFormat: {
-                numberFormat: {
-                  type: "CURRENCY",
-                  pattern: "₹#,##0.00",
+      // Clear existing data (except headers)
+      await window.gapi.client.sheets.spreadsheets.values.clear({
+        spreadsheetId: spreadsheetId,
+        range: `${month}!A2:E`,
+      });
+
+      // Prepare data for Google Sheets
+      const values = monthTransactions.map((transaction) => [
+        transaction.date,
+        transaction.description,
+        transaction.amount,
+        transaction.type === "credit" ? "Credit" : "Debit",
+        transaction.category,
+      ]);
+
+      // Write data to sheet
+      await window.gapi.client.sheets.spreadsheets.values.update({
+        spreadsheetId: spreadsheetId,
+        range: `${month}!A2:E${values.length + 1}`,
+        valueInputOption: "RAW",
+        values: values,
+      });
+
+      // Format amount column as currency
+      await window.gapi.client.sheets.spreadsheets.batchUpdate({
+        spreadsheetId: spreadsheetId,
+        requests: [
+          {
+            repeatCell: {
+              range: {
+                sheetId: await getSheetId(spreadsheetId, month),
+                startRowIndex: 1,
+                endRowIndex: values.length + 1,
+                startColumnIndex: 2,
+                endColumnIndex: 3,
+              },
+              cell: {
+                userEnteredFormat: {
+                  numberFormat: {
+                    type: "CURRENCY",
+                    pattern: "₹#,##0.00",
+                  },
                 },
               },
+              fields: "userEnteredFormat.numberFormat",
             },
-            fields: "userEnteredFormat.numberFormat",
           },
-        },
-      ],
-    });
+        ],
+      });
+    }
   } catch (error) {
     console.error("Failed to save transactions to Google Sheets:", error);
     throw new Error("Failed to save to Google Sheets");

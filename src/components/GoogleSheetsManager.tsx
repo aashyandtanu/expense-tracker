@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Cloud, CloudOff, Download, Upload, Calendar, FileSpreadsheet, AlertCircle, CheckCircle, Loader, ExternalLink, Copy, Eye, EyeOff } from 'lucide-react';
+import { Cloud, CloudOff, Download, Upload, Calendar, FileSpreadsheet, AlertCircle, CheckCircle, Loader, ExternalLink, Copy, Eye, EyeOff, Shield } from 'lucide-react';
 import { Transaction } from '../types';
 import {
   loadGoogleSheetsConfig,
@@ -12,7 +12,8 @@ import {
   getAvailableMonths,
   exportTransactionsToExcel,
   GoogleSheetsConfig,
-  saveGoogleCredentials
+  saveGoogleCredentials,
+  clearExpiredCredentials
 } from '../utils/googleSheets';
 
 interface GoogleSheetsManagerProps {
@@ -53,18 +54,17 @@ export function GoogleSheetsManager({
   const years = Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - i);
 
   useEffect(() => {
+    // Clear expired credentials on component mount
+    clearExpiredCredentials();
+    
     const savedConfig = loadGoogleSheetsConfig();
     setConfig(savedConfig);
     
-    // Check if credentials are already saved
-    const savedCredentials = localStorage.getItem('google-sheets-credentials');
-    if (savedCredentials) {
-      try {
-        const parsed = JSON.parse(savedCredentials);
-        setCredentials(parsed);
-      } catch (error) {
-        console.error('Failed to load saved credentials:', error);
-      }
+    // Check if credentials are available (but don't load them for security)
+    const hasCredentials = localStorage.getItem('google-sheets-credentials') !== null;
+    if (!hasCredentials && savedConfig.isConnected) {
+      // Credentials expired, disconnect
+      setConfig({ isConnected: false });
     }
   }, []);
 
@@ -87,19 +87,12 @@ export function GoogleSheetsManager({
     }
 
     saveGoogleCredentials(credentials.clientId.trim(), credentials.apiKey.trim());
+    setCredentials({ clientId: '', apiKey: '' }); // Clear from state for security
     setShowSetup(false);
-    showStatus('success', 'Credentials saved! You can now connect to Google Sheets.');
+    showStatus('success', 'Credentials saved securely with 24-hour timeout!');
   };
 
   const handleConnect = async () => {
-    // Check if credentials are set
-    const savedCredentials = localStorage.getItem('google-sheets-credentials');
-    if (!savedCredentials) {
-      setShowSetup(true);
-      showStatus('info', 'Please set up your Google API credentials first');
-      return;
-    }
-
     setIsInitializing(true);
     try {
       const initialized = await initializeGoogleSheetsAPI();
@@ -110,9 +103,14 @@ export function GoogleSheetsManager({
       const newConfig = await authenticateGoogle();
       setConfig(newConfig);
       showStatus('success', 'Successfully connected to Google Sheets!');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Connection failed:', error);
-      showStatus('error', 'Failed to connect to Google Sheets. Please check your credentials and try again.');
+      if (error.message.includes('credentials not found or expired')) {
+        setShowSetup(true);
+        showStatus('info', 'Please set up your Google API credentials');
+      } else {
+        showStatus('error', 'Failed to connect to Google Sheets. Please check your credentials and try again.');
+      }
     } finally {
       setIsInitializing(false);
     }
@@ -190,8 +188,9 @@ export function GoogleSheetsManager({
 
     setIsLoading(true);
     try {
+      // Save transactions organized by their date's month
       await saveTransactionsToGoogleSheets(transactions, saveYear, saveMonth);
-      showStatus('success', `Saved ${transactions.length} transactions to ${saveMonth} ${saveYear}`);
+      showStatus('success', `Saved ${transactions.length} transactions organized by month to ${saveYear} spreadsheet`);
     } catch (error) {
       console.error('Failed to save transactions:', error);
       showStatus('error', 'Failed to save transactions to Google Sheets');
@@ -211,11 +210,6 @@ export function GoogleSheetsManager({
     showStatus('success', `Exported ${transactions.length} transactions to ${filename}`);
   };
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    showStatus('success', 'Copied to clipboard!');
-  };
-
   const handleMonthSelection = (month: string) => {
     if (loadMode === 'single') {
       setSelectedMonths([month]);
@@ -226,6 +220,11 @@ export function GoogleSheetsManager({
           : [...prev, month]
       );
     }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    showStatus('success', 'Copied to clipboard!');
   };
 
   return (
@@ -254,7 +253,7 @@ export function GoogleSheetsManager({
               onClick={() => setShowSetup(true)}
               className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
             >
-              <ExternalLink className="h-4 w-4" />
+              <Shield className="h-4 w-4" />
               Setup
             </button>
             <button
@@ -278,7 +277,10 @@ export function GoogleSheetsManager({
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl mx-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-6 border-b border-gray-200">
-              <h3 className="text-xl font-semibold text-gray-900">Google Sheets Setup</h3>
+              <div className="flex items-center gap-3">
+                <Shield className="h-6 w-6 text-blue-600" />
+                <h3 className="text-xl font-semibold text-gray-900">Secure Google Sheets Setup</h3>
+              </div>
               <button
                 onClick={() => setShowSetup(false)}
                 className="p-1 hover:bg-gray-100 rounded-full transition-colors"
@@ -288,6 +290,19 @@ export function GoogleSheetsManager({
             </div>
             
             <div className="p-6 space-y-6">
+              <div className="bg-green-50 rounded-lg p-4 border border-green-200">
+                <h4 className="font-medium text-green-900 mb-2 flex items-center gap-2">
+                  <Shield className="h-4 w-4" />
+                  🔒 Security Features
+                </h4>
+                <ul className="text-sm text-green-800 space-y-1">
+                  <li>• Credentials stored locally with 24-hour automatic expiration</li>
+                  <li>• No credentials stored in code or sent to external servers</li>
+                  <li>• Direct authentication with Google APIs only</li>
+                  <li>• Credentials cleared from memory after saving</li>
+                </ul>
+              </div>
+
               <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
                 <h4 className="font-medium text-blue-900 mb-2">📋 Setup Instructions</h4>
                 <p className="text-blue-800 text-sm mb-3">
@@ -410,20 +425,12 @@ export function GoogleSheetsManager({
                   </div>
                 </div>
 
-                <div className="bg-yellow-50 rounded-lg p-4 border border-yellow-200">
-                  <h5 className="font-medium text-yellow-900 mb-2">🔒 Security Note</h5>
-                  <p className="text-yellow-800 text-sm">
-                    Your credentials are stored locally in your browser and are never sent to our servers. 
-                    They are only used to authenticate directly with Google's APIs.
-                  </p>
-                </div>
-
                 <div className="flex gap-3">
                   <button
                     onClick={handleSaveCredentials}
                     className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                   >
-                    Save Credentials
+                    Save Credentials Securely
                   </button>
                   <button
                     onClick={() => setShowSetup(false)}
@@ -460,16 +467,16 @@ export function GoogleSheetsManager({
           <h3 className="text-lg font-medium text-gray-900 mb-2">Connect to Google Sheets</h3>
           <p className="text-gray-600 mb-4">
             Store your transactions in Google Sheets organized by year and month.
-            Each year gets its own spreadsheet with monthly sheets.
+            Each transaction goes to its respective month sheet based on the transaction date.
           </p>
           <div className="bg-gray-50 rounded-lg p-4 text-left">
             <h4 className="font-medium text-gray-900 mb-2">How it works:</h4>
             <ul className="text-sm text-gray-600 space-y-1">
               <li>• Creates one spreadsheet per year (e.g., "Expense Tracker 2024")</li>
-              <li>• Each month gets its own sheet within the yearly spreadsheet</li>
-              <li>• Load specific months when needed - keeps the app lightweight</li>
+              <li>• Each transaction goes to its month sheet based on transaction date</li>
+              <li>• Load specific months, multiple months, or entire year</li>
               <li>• Export to Excel for offline backup</li>
-              <li>• All data syncs across devices</li>
+              <li>• Secure credential storage with 24-hour timeout</li>
             </ul>
           </div>
         </div>
@@ -624,14 +631,14 @@ export function GoogleSheetsManager({
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Month
+                  Target Month (Optional)
                 </label>
                 <select
                   value={saveMonth}
                   onChange={(e) => setSaveMonth(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
                 >
-                  <option value="">Select month</option>
+                  <option value="">Auto-organize by date</option>
                   {months.map(month => (
                     <option key={month} value={month}>{month}</option>
                   ))}
@@ -641,7 +648,7 @@ export function GoogleSheetsManager({
               <div className="flex items-end">
                 <button
                   onClick={handleSaveTransactions}
-                  disabled={!saveMonth || transactions.length === 0 || isLoading}
+                  disabled={transactions.length === 0 || isLoading}
                   className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
                 >
                   {isLoading ? 'Saving...' : `Save ${transactions.length} Transactions`}
@@ -650,7 +657,7 @@ export function GoogleSheetsManager({
             </div>
             
             <p className="text-xs text-gray-500">
-              This will overwrite existing data in the selected month sheet.
+              Transactions will be organized by their date into appropriate month sheets.
             </p>
           </div>
 
@@ -685,10 +692,10 @@ export function GoogleSheetsManager({
           <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
             <h4 className="font-medium text-blue-900 mb-2">💡 Usage Tips</h4>
             <ul className="text-sm text-blue-800 space-y-1">
-              <li>• Use this tool monthly to save your transactions to Google Sheets</li>
+              <li>• Transactions are automatically organized by date into month sheets</li>
               <li>• Load specific months when you need to review historical data</li>
               <li>• Export to Excel for offline analysis or backup</li>
-              <li>• Each year gets its own spreadsheet for better organization</li>
+              <li>• Credentials expire after 24 hours for security</li>
               <li>• Data is automatically formatted with currency and proper headers</li>
             </ul>
           </div>

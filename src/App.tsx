@@ -23,30 +23,56 @@ function App() {
   const [mappingsVersion, setMappingsVersion] = useState(0);
   const [selectedMonth, setSelectedMonth] = useState<string>('');
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const [analyticsKey, setAnalyticsKey] = useState(0); // Force analytics refresh
 
-  // Load transactions from localStorage on app start
+  // Load transactions from sessionStorage first, then localStorage
   useEffect(() => {
+    // Try session storage first (current session)
+    const sessionTransactions = sessionStorage.getItem('expense-tracker-session-transactions');
+    if (sessionTransactions) {
+      try {
+        setTransactions(JSON.parse(sessionTransactions));
+        return;
+      } catch (error) {
+        console.error('Failed to load session transactions:', error);
+      }
+    }
+
+    // Fallback to localStorage (persistent)
     const savedTransactions = localStorage.getItem('expense-tracker-transactions');
     if (savedTransactions) {
       try {
-        setTransactions(JSON.parse(savedTransactions));
+        const parsed = JSON.parse(savedTransactions);
+        setTransactions(parsed);
+        // Also save to session storage for this session
+        sessionStorage.setItem('expense-tracker-session-transactions', savedTransactions);
       } catch (error) {
         console.error('Failed to load saved transactions:', error);
       }
     }
   }, []);
 
-  // Save transactions to localStorage whenever they change
+  // Save transactions to both sessionStorage and localStorage
   useEffect(() => {
-    localStorage.setItem('expense-tracker-transactions', JSON.stringify(transactions));
+    const transactionsJson = JSON.stringify(transactions);
+    
+    // Save to session storage (for current session)
+    sessionStorage.setItem('expense-tracker-session-transactions', transactionsJson);
+    
+    // Save to localStorage (persistent)
+    localStorage.setItem('expense-tracker-transactions', transactionsJson);
   }, [transactions]);
 
   const handleTransactionsLoaded = (newTransactions: Transaction[]) => {
     setTransactions(prev => [...prev, ...newTransactions]);
+    // Force analytics refresh
+    setAnalyticsKey(prev => prev + 1);
   };
 
   const handleTransactionsReplaced = (newTransactions: Transaction[]) => {
     setTransactions(newTransactions);
+    // Force analytics refresh
+    setAnalyticsKey(prev => prev + 1);
   };
 
   const handleSalaryEntriesFound = (entries: Array<{ amount: number; date: string; description: string }>) => {
@@ -65,6 +91,7 @@ function App() {
 
     if (salaryTransactions.length > 0) {
       setTransactions(prev => [...prev, ...salaryTransactions]);
+      setAnalyticsKey(prev => prev + 1);
     }
   };
 
@@ -75,6 +102,7 @@ function App() {
       source: 'manual',
     };
     setTransactions(prev => [newTransaction, ...prev]);
+    setAnalyticsKey(prev => prev + 1);
   };
 
   const handleAddSalary = (salaryData: Omit<SalaryEntry, 'id'>) => {
@@ -89,16 +117,19 @@ function App() {
       source: 'manual',
     };
     setTransactions(prev => [salaryTransaction, ...prev]);
+    setAnalyticsKey(prev => prev + 1);
   };
 
   const handleDeleteTransaction = (id: string) => {
     setTransactions(prev => prev.filter(t => t.id !== id));
+    setAnalyticsKey(prev => prev + 1);
   };
 
   const handleUpdateTransaction = (id: string, updatedData: Partial<Transaction>) => {
     setTransactions(prev => prev.map(t => 
       t.id === id ? { ...t, ...updatedData } : t
     ));
+    setAnalyticsKey(prev => prev + 1);
   };
 
   const handleMappingsUpdated = () => {
@@ -274,7 +305,7 @@ function App() {
             <div className="space-y-6">
               <h2 className="text-2xl font-bold text-gray-900 text-center">Financial Analytics</h2>
               {transactions.length > 0 ? (
-                <Charts transactions={transactions} />
+                <Charts key={analyticsKey} transactions={transactions} />
               ) : (
                 <div className="text-center py-12">
                   <div className="text-gray-500 mb-4">

@@ -48,8 +48,18 @@ export function FileUpload({ onTransactionsLoaded, onSalaryEntriesFound, onOpenM
       }
     };
 
+    // Listen for custom events when mappings are updated
+    const handleMappingsUpdate = () => {
+      loadMappings();
+    };
+
     window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+    window.addEventListener('fieldMappingsUpdated', handleMappingsUpdate);
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('fieldMappingsUpdated', handleMappingsUpdate);
+    };
   }, [selectedMapping.id]);
 
   const processFile = async (file: File) => {
@@ -173,6 +183,10 @@ export function FileUpload({ onTransactionsLoaded, onSalaryEntriesFound, onOpenM
     multiple: false,
   });
 
+  // Group mappings by type for better organization
+  const defaultMappings = fieldMappings.filter(m => m.isDefault);
+  const customMappings = fieldMappings.filter(m => !m.isDefault);
+
   return (
     <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-200">
       <div className="flex items-center justify-between mb-4">
@@ -203,21 +217,55 @@ export function FileUpload({ onTransactionsLoaded, onSalaryEntriesFound, onOpenM
           }}
           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
-          {fieldMappings.map((mapping) => (
-            <option key={mapping.id} value={mapping.id}>
-              {mapping.bankName} {mapping.isDefault ? '(Default)' : '(Custom)'}
-            </option>
-          ))}
+          {/* Default Mappings Group */}
+          {defaultMappings.length > 0 && (
+            <optgroup label="📋 Default Bank Formats">
+              {defaultMappings.map((mapping) => (
+                <option key={mapping.id} value={mapping.id}>
+                  {mapping.bankName}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          
+          {/* Custom Mappings Group */}
+          {customMappings.length > 0 && (
+            <optgroup label="⚙️ Custom Bank Formats">
+              {customMappings.map((mapping) => (
+                <option key={mapping.id} value={mapping.id}>
+                  {mapping.bankName} (Custom)
+                </option>
+              ))}
+            </optgroup>
+          )}
+          
+          {/* Fallback if no mappings */}
+          {fieldMappings.length === 0 && (
+            <option value="">No mappings available</option>
+          )}
         </select>
         <p className="text-xs text-gray-500 mt-1">
-          Choose the format that matches your bank statement columns
+          Choose the format that matches your bank statement columns. 
+          {customMappings.length > 0 && (
+            <span className="text-blue-600"> Custom formats are marked with (Custom).</span>
+          )}
         </p>
       </div>
 
       {/* Current Mapping Details */}
       <div className="mb-4 p-3 bg-gray-50 rounded-lg">
-        <h4 className="text-sm font-medium text-gray-900 mb-2">Current Mapping Configuration:</h4>
+        <div className="flex items-center justify-between mb-2">
+          <h4 className="text-sm font-medium text-gray-900">Current Mapping Configuration:</h4>
+          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+            selectedMapping.isDefault 
+              ? 'bg-blue-100 text-blue-800' 
+              : 'bg-purple-100 text-purple-800'
+          }`}>
+            {selectedMapping.isDefault ? '📋 Default' : '⚙️ Custom'}
+          </span>
+        </div>
         <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
+          <div><strong>Starter Word:</strong> "{selectedMapping.starterWord}"</div>
           <div><strong>Date:</strong> {selectedMapping.dateColumn}</div>
           <div><strong>Description:</strong> {selectedMapping.descriptionColumn}</div>
           {selectedMapping.amountColumn && (

@@ -107,6 +107,9 @@ export function saveFieldMappings(mappings: FieldMapping[]): void {
   // Save both separately
   localStorage.setItem('expense-tracker-default-field-mappings', JSON.stringify(defaultMappings));
   localStorage.setItem('expense-tracker-field-mappings', JSON.stringify(customMappings));
+  
+  // Dispatch custom event to notify other components
+  window.dispatchEvent(new CustomEvent('fieldMappingsUpdated'));
 }
 
 export function getDefaultMapping(): FieldMapping {

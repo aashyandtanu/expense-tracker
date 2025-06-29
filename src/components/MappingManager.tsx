@@ -1,0 +1,383 @@
+import React, { useState, useEffect } from 'react';
+import { Plus, Edit2, Trash2, Save, X, Settings } from 'lucide-react';
+import { CustomMapping } from '../types';
+import { loadCustomMappings, saveCustomMappings, getAllCategories, defaultCategoryMappings } from '../utils/categoryMappings';
+
+interface MappingManagerProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onMappingsUpdated: () => void;
+}
+
+export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingManagerProps) {
+  const [customMappings, setCustomMappings] = useState<CustomMapping[]>([]);
+  const [defaultMappings, setDefaultMappings] = useState<{ [key: string]: string }>({});
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingDefault, setEditingDefault] = useState<string | null>(null);
+  const [newMapping, setNewMapping] = useState({ keyword: '', category: '' });
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [categories] = useState(getAllCategories());
+
+  useEffect(() => {
+    if (isOpen) {
+      setCustomMappings(loadCustomMappings());
+      setDefaultMappings({ ...defaultCategoryMappings });
+    }
+  }, [isOpen]);
+
+  const handleSave = () => {
+    saveCustomMappings(customMappings);
+    // Save modified default mappings
+    localStorage.setItem('expense-tracker-default-mappings', JSON.stringify(defaultMappings));
+    onMappingsUpdated();
+    onClose();
+  };
+
+  const handleAddMapping = () => {
+    if (!newMapping.keyword.trim() || !newMapping.category.trim()) return;
+
+    const mapping: CustomMapping = {
+      id: `custom-${Date.now()}`,
+      keyword: newMapping.keyword.trim().toLowerCase(),
+      category: newMapping.category.trim(),
+      isActive: true,
+      createdAt: new Date().toISOString(),
+    };
+
+    setCustomMappings(prev => [...prev, mapping]);
+    setNewMapping({ keyword: '', category: '' });
+    setShowAddForm(false);
+  };
+
+  const handleEditMapping = (id: string, field: 'keyword' | 'category', value: string) => {
+    setCustomMappings(prev => prev.map(mapping =>
+      mapping.id === id ? { ...mapping, [field]: value } : mapping
+    ));
+  };
+
+  const handleEditDefaultMapping = (keyword: string, category: string) => {
+    setDefaultMappings(prev => ({ ...prev, [keyword]: category }));
+  };
+
+  const handleDeleteDefaultMapping = (keyword: string) => {
+    setDefaultMappings(prev => {
+      const newMappings = { ...prev };
+      delete newMappings[keyword];
+      return newMappings;
+    });
+  };
+
+  const handleToggleActive = (id: string) => {
+    setCustomMappings(prev => prev.map(mapping =>
+      mapping.id === id ? { ...mapping, isActive: !mapping.isActive } : mapping
+    ));
+  };
+
+  const handleDeleteMapping = (id: string) => {
+    setCustomMappings(prev => prev.filter(mapping => mapping.id !== id));
+  };
+
+  // Group default mappings by category
+  const groupedDefaultMappings = Object.entries(defaultMappings).reduce((acc, [keyword, category]) => {
+    if (!acc[category]) {
+      acc[category] = [];
+    }
+    acc[category].push(keyword);
+    return acc;
+  }, {} as Record<string, string[]>);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-6xl mx-4 max-h-[90vh] overflow-hidden">
+        <div className="flex items-center justify-between p-6 border-b border-gray-200">
+          <div className="flex items-center gap-3">
+            <Settings className="h-6 w-6 text-blue-600" />
+            <h2 className="text-xl font-semibold text-gray-900">Category Mappings</h2>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+          >
+            <X className="h-5 w-5 text-gray-500" />
+          </button>
+        </div>
+
+        <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
+          <div className="mb-6">
+            <p className="text-gray-600 mb-4">
+              Manage how transaction descriptions are automatically categorized. Keywords are matched against transaction descriptions (case-insensitive).
+            </p>
+            
+            <button
+              onClick={() => setShowAddForm(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+              Add Custom Mapping
+            </button>
+          </div>
+
+          {showAddForm && (
+            <div className="bg-blue-50 rounded-lg p-4 mb-6 border border-blue-200">
+              <h3 className="font-medium text-gray-900 mb-3">Add Custom Mapping</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Keyword
+                  </label>
+                  <input
+                    type="text"
+                    value={newMapping.keyword}
+                    onChange={(e) => setNewMapping(prev => ({ ...prev, keyword: e.target.value }))}
+                    placeholder="e.g., starbucks, gym, netflix"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Category
+                  </label>
+                  <select
+                    value={newMapping.category}
+                    onChange={(e) => setNewMapping(prev => ({ ...prev, category: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select category</option>
+                    {categories.map(category => (
+                      <option key={category} value={category}>{category}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="flex gap-2 mt-4">
+                <button
+                  onClick={handleAddMapping}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Add Mapping
+                </button>
+                <button
+                  onClick={() => {
+                    setShowAddForm(false);
+                    setNewMapping({ keyword: '', category: '' });
+                  }}
+                  className="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Default Mappings Section */}
+          <div className="mb-8">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Default Mappings</h3>
+              <span className="text-sm text-gray-500">
+                {Object.keys(defaultMappings).length} mappings
+              </span>
+            </div>
+            
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {Object.entries(groupedDefaultMappings).map(([category, keywords]) => (
+                <div key={category} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-medium text-gray-900">{category}</h4>
+                    <span className="text-xs text-gray-500">{keywords.length} keywords</span>
+                  </div>
+                  
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {keywords.map((keyword) => (
+                      <div key={keyword} className="flex items-center justify-between text-sm bg-white rounded p-2">
+                        {editingDefault === keyword ? (
+                          <div className="flex items-center gap-2 flex-1">
+                            <input
+                              type="text"
+                              value={keyword}
+                              onChange={(e) => {
+                                const newKeyword = e.target.value;
+                                const oldCategory = defaultMappings[keyword];
+                                setDefaultMappings(prev => {
+                                  const newMappings = { ...prev };
+                                  delete newMappings[keyword];
+                                  newMappings[newKeyword] = oldCategory;
+                                  return newMappings;
+                                });
+                                setEditingDefault(newKeyword);
+                              }}
+                              className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            />
+                            <select
+                              value={defaultMappings[keyword]}
+                              onChange={(e) => handleEditDefaultMapping(keyword, e.target.value)}
+                              className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            >
+                              {categories.map(cat => (
+                                <option key={cat} value={cat}>{cat}</option>
+                              ))}
+                            </select>
+                            <button
+                              onClick={() => setEditingDefault(null)}
+                              className="p-1 text-green-600 hover:bg-green-50 rounded transition-colors"
+                            >
+                              <Save className="h-3 w-3" />
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <span className="font-mono text-gray-700 flex-1">
+                              {keyword}
+                            </span>
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => setEditingDefault(keyword)}
+                                className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                title="Edit mapping"
+                              >
+                                <Edit2 className="h-3 w-3" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteDefaultMapping(keyword)}
+                                className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                title="Delete mapping"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Custom Mappings Section */}
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Custom Mappings</h3>
+              <span className="text-sm text-gray-500">
+                {customMappings.length} custom mappings
+              </span>
+            </div>
+
+            <div className="space-y-3">
+              {customMappings.length === 0 ? (
+                <div className="text-center py-8 text-gray-500 border border-gray-200 rounded-lg">
+                  <Settings className="h-12 w-12 mx-auto opacity-50 mb-3" />
+                  <p>No custom mappings created yet.</p>
+                  <p className="text-sm">Add your first custom mapping to override defaults or create new ones.</p>
+                </div>
+              ) : (
+                customMappings.map((mapping) => (
+                  <div
+                    key={mapping.id}
+                    className={`border rounded-lg p-4 transition-all ${
+                      mapping.isActive ? 'border-gray-200 bg-white' : 'border-gray-100 bg-gray-50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">
+                            Keyword
+                          </label>
+                          {editingId === mapping.id ? (
+                            <input
+                              type="text"
+                              value={mapping.keyword}
+                              onChange={(e) => handleEditMapping(mapping.id, 'keyword', e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                          ) : (
+                            <div className="px-3 py-2 bg-gray-100 rounded-lg text-sm font-mono">
+                              {mapping.keyword}
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">
+                            Category
+                          </label>
+                          {editingId === mapping.id ? (
+                            <select
+                              value={mapping.category}
+                              onChange={(e) => handleEditMapping(mapping.id, 'category', e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            >
+                              {categories.map(category => (
+                                <option key={category} value={category}>{category}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <div className="px-3 py-2 bg-blue-100 text-blue-800 rounded-lg text-sm font-medium">
+                              {mapping.category}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-2 ml-4">
+                        <label className="flex items-center">
+                          <input
+                            type="checkbox"
+                            checked={mapping.isActive}
+                            onChange={() => handleToggleActive(mapping.id)}
+                            className="mr-2"
+                          />
+                          <span className="text-sm text-gray-600">Active</span>
+                        </label>
+                        
+                        {editingId === mapping.id ? (
+                          <button
+                            onClick={() => setEditingId(null)}
+                            className="p-1 text-green-600 hover:bg-green-50 rounded transition-colors"
+                          >
+                            <Save className="h-4 w-4" />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => setEditingId(mapping.id)}
+                            className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                          >
+                            <Edit2 className="h-4 w-4" />
+                          </button>
+                        )}
+                        
+                        <button
+                          onClick={() => handleDeleteMapping(mapping.id)}
+                          className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 p-6 border-t border-gray-200">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            Save Changes
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

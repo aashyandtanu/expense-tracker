@@ -1,7 +1,7 @@
 import { CategoryMapping, CustomMapping } from '../types';
 
 // Base default mappings - these should never be modified directly
-const BASE_DEFAULT_MAPPINGS: CategoryMapping = {
+export const BASE_DEFAULT_MAPPINGS: CategoryMapping = {
   // Food & Dining
   'zomato': 'Food & Dining',
   'swiggy': 'Food & Dining',
@@ -282,6 +282,3 @@ export function getAllCategories(): string[] {
 export function resetDefaultMappings(): void {
   localStorage.removeItem('expense-tracker-default-mappings');
 }
-
-// Export the base default mappings for reference
-export { BASE_DEFAULT_MAPPINGS as defaultCategoryMappings };

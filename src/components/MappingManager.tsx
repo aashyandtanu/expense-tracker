@@ -8,7 +8,7 @@ import {
   getCurrentDefaultMappings,
   updateDefaultMappings,
   resetDefaultMappings,
-  BASE_DEFAULT_MAPPINGS as defaultCategoryMappings
+  BASE_DEFAULT_MAPPINGS
 } from '../utils/categoryMappings';
 
 interface MappingManagerProps {
@@ -124,7 +124,7 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
   const handleResetDefaults = () => {
     if (confirm('Are you sure you want to reset all default mappings to their original state? This will remove all your modifications to default mappings.')) {
       resetDefaultMappings();
-      setDefaultMappings({ ...defaultCategoryMappings });
+      setDefaultMappings({ ...BASE_DEFAULT_MAPPINGS });
       setHasUnsavedChanges(true);
     }
   };

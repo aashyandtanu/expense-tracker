@@ -280,10 +280,30 @@ function findHeaderRowByStarterWord(
       cell ? cell.toString().toLowerCase().trim() : ""
     );
 
-    // Check if this row contains the starter word
-    const starterWordIndex = lowerRow.findIndex((cell) =>
-      cell?.toString().toLowerCase().includes(mapping.starterWord.toLowerCase())
-    );
+    // Check if this row contains the starter word using stricter matching
+    const starterWordIndex = lowerRow.findIndex((cell) => {
+      if (!cell) return false;
+      
+      const cellStr = cell.toString().toLowerCase().trim();
+      const starterWord = mapping.starterWord.toLowerCase().trim();
+      
+      // First try exact match
+      if (cellStr === starterWord) return true;
+      
+      // Then try whole word match (word boundaries)
+      const wordRegex = new RegExp(`\\b${starterWord.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+      if (wordRegex.test(cellStr)) return true;
+      
+      // Only allow substring match if the starter word is reasonably long (>3 chars)
+      // and the cell doesn't look like transaction data
+      if (starterWord.length > 3 && 
+          cellStr.includes(starterWord) && 
+          !isTransactionLikeData(cellStr)) {
+        return true;
+      }
+      
+      return false;
+    });
 
     if (starterWordIndex === -1) continue;
 
@@ -349,19 +369,54 @@ function findHeaderRowByStarterWord(
   return null;
 }
 
+function isTransactionLikeData(cellStr: string): boolean {
+  // Check if the cell looks like transaction data rather than a header
+  const transactionPatterns = [
+    /upi-/i,                    // UPI transactions
+    /\d{10,}/,                  // Long numbers (transaction IDs)
+    /-[A-Z]{4}\d+-/,           // Bank codes like -ICIC0DC0099-
+    /payu@|axisb@|icici/i,     // Payment gateway patterns
+    /payment|transfer|loan/i,   // Transaction keywords
+    /\d{2}\/\d{2}\/\d{2,4}/,   // Date patterns
+    /₹\d+|\$\d+/,              // Currency amounts
+  ];
+  
+  return transactionPatterns.some(pattern => pattern.test(cellStr));
+}
+
 function findColumnIndex(row: string[], columnName: string): number {
-  const lowerColumnName = columnName.toLowerCase();
+  const lowerColumnName = columnName.toLowerCase().trim();
 
   // First try exact match
-  const exactMatch = row.findIndex((cell) => cell === lowerColumnName);
+  const exactMatch = row.findIndex((cell) => {
+    if (!cell) return false;
+    return cell.toString().toLowerCase().trim() === lowerColumnName;
+  });
   if (exactMatch !== -1) return exactMatch;
 
-  // Then try partial match
+  // Then try whole word match
+  const wholeWordMatch = row.findIndex((cell) => {
+    if (!cell) return false;
+    const cellStr = cell.toString().toLowerCase().trim();
+    const wordRegex = new RegExp(`\\b${lowerColumnName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+    return wordRegex.test(cellStr);
+  });
+  if (wholeWordMatch !== -1) return wholeWordMatch;
+
+  // Finally try partial match, but be more restrictive
   const partialMatch = row.findIndex((cell) => {
-    const cellStr = cell?.toString().toLowerCase() || "";
-    return (
-      cellStr.includes(lowerColumnName) || lowerColumnName.includes(cellStr)
-    );
+    if (!cell) return false;
+    const cellStr = cell.toString().toLowerCase().trim();
+    
+    // Only allow partial matches for reasonable column names
+    // and avoid matching transaction-like data
+    if (lowerColumnName.length > 2 && 
+        !isTransactionLikeData(cellStr) &&
+        (cellStr.includes(lowerColumnName) || lowerColumnName.includes(cellStr))) {
+      return true;
+    }
+    
+    return false;
   });
 
   return partialMatch !== -1 ? partialMatch : -1;

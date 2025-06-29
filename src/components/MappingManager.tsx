@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, Save, X, Settings, RotateCcw } from 'lucide-react';
+import { Plus, Edit2, Trash2, Save, X, Settings, RotateCcw, AlertTriangle } from 'lucide-react';
 import { CustomMapping } from '../types';
 import { 
   loadCustomMappings, 
@@ -8,6 +8,8 @@ import {
   getCurrentDefaultMappings,
   updateDefaultMappings,
   resetDefaultMappings,
+  deleteDefaultMapping,
+  updateDefaultMapping,
   BASE_DEFAULT_MAPPINGS
 } from '../utils/categoryMappings';
 
@@ -26,6 +28,7 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
   const [showAddForm, setShowAddForm] = useState(false);
   const [categories] = useState(getAllCategories());
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -34,13 +37,30 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
   }, [isOpen]);
 
   const loadMappings = () => {
-    setCustomMappings(loadCustomMappings());
-    setDefaultMappings(getCurrentDefaultMappings());
-    setHasUnsavedChanges(false);
+    try {
+      setIsLoading(true);
+      const customs = loadCustomMappings();
+      const defaults = getCurrentDefaultMappings();
+      
+      setCustomMappings(customs);
+      setDefaultMappings(defaults);
+      setHasUnsavedChanges(false);
+      
+      console.log('Mappings loaded:', {
+        customs: customs.length,
+        defaults: Object.keys(defaults).length
+      });
+    } catch (error) {
+      console.error('Error loading mappings:', error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     try {
+      setIsLoading(true);
+      
       // Save custom mappings
       saveCustomMappings(customMappings);
       
@@ -49,19 +69,28 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
       
       setHasUnsavedChanges(false);
       onMappingsUpdated();
+      
+      // Small delay to show loading state
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
       onClose();
     } catch (error) {
       console.error('Error saving mappings:', error);
       alert('Failed to save mappings. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleAddMapping = () => {
-    if (!newMapping.keyword.trim() || !newMapping.category.trim()) return;
+    if (!newMapping.keyword.trim() || !newMapping.category.trim()) {
+      alert('Please enter both keyword and category.');
+      return;
+    }
 
     const keyword = newMapping.keyword.trim().toLowerCase();
     
-    // Check if keyword already exists in defaults or customs
+    // Check if keyword already exists
     const existsInDefaults = defaultMappings.hasOwnProperty(keyword);
     const existsInCustoms = customMappings.some(m => m.keyword.toLowerCase() === keyword);
     
@@ -84,25 +113,40 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
     setHasUnsavedChanges(true);
   };
 
-  const handleEditMapping = (id: string, field: 'keyword' | 'category', value: string) => {
+  const handleEditCustomMapping = (id: string, field: 'keyword' | 'category', value: string) => {
     setCustomMappings(prev => prev.map(mapping =>
-      mapping.id === id ? { ...mapping, [field]: field === 'keyword' ? value.toLowerCase() : value } : mapping
+      mapping.id === id ? { 
+        ...mapping, 
+        [field]: field === 'keyword' ? value.toLowerCase() : value 
+      } : mapping
     ));
     setHasUnsavedChanges(true);
   };
 
-  const handleEditDefaultMapping = (keyword: string, category: string) => {
-    setDefaultMappings(prev => ({ ...prev, [keyword]: category }));
+  const handleEditDefaultMapping = (oldKeyword: string, newKeyword: string, category: string) => {
+    const newMappings = { ...defaultMappings };
+    
+    if (oldKeyword !== newKeyword) {
+      // Remove old keyword
+      delete newMappings[oldKeyword];
+    }
+    
+    // Add/update new keyword
+    newMappings[newKeyword.toLowerCase()] = category;
+    
+    setDefaultMappings(newMappings);
     setHasUnsavedChanges(true);
+    
+    if (oldKeyword !== newKeyword) {
+      setEditingDefault(newKeyword.toLowerCase());
+    }
   };
 
   const handleDeleteDefaultMapping = (keyword: string) => {
     if (confirm(`Are you sure you want to delete the mapping for "${keyword}"?`)) {
-      setDefaultMappings(prev => {
-        const newMappings = { ...prev };
-        delete newMappings[keyword];
-        return newMappings;
-      });
+      const newMappings = { ...defaultMappings };
+      delete newMappings[keyword];
+      setDefaultMappings(newMappings);
       setHasUnsavedChanges(true);
     }
   };
@@ -114,7 +158,7 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
     setHasUnsavedChanges(true);
   };
 
-  const handleDeleteMapping = (id: string) => {
+  const handleDeleteCustomMapping = (id: string) => {
     if (confirm('Are you sure you want to delete this custom mapping?')) {
       setCustomMappings(prev => prev.filter(mapping => mapping.id !== id));
       setHasUnsavedChanges(true);
@@ -123,7 +167,6 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
 
   const handleResetDefaults = () => {
     if (confirm('Are you sure you want to reset all default mappings to their original state? This will remove all your modifications to default mappings.')) {
-      resetDefaultMappings();
       setDefaultMappings({ ...BASE_DEFAULT_MAPPINGS });
       setHasUnsavedChanges(true);
     }
@@ -132,7 +175,7 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
   const handleCancel = () => {
     if (hasUnsavedChanges) {
       if (confirm('You have unsaved changes. Are you sure you want to cancel?')) {
-        loadMappings(); // Reload original data
+        loadMappings();
         onClose();
       }
     } else {
@@ -140,16 +183,28 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
     }
   };
 
-  // Combine all mappings and group by category
+  // Group all mappings by category
   const getAllMappingsByCategory = () => {
-    const allMappings: { [category: string]: Array<{ keyword: string; type: 'default' | 'custom'; id?: string; isActive?: boolean }> } = {};
+    const allMappings: { 
+      [category: string]: Array<{ 
+        keyword: string; 
+        type: 'default' | 'custom'; 
+        id?: string; 
+        isActive?: boolean;
+        isBaseDefault?: boolean;
+      }> 
+    } = {};
     
     // Add default mappings
     Object.entries(defaultMappings).forEach(([keyword, category]) => {
       if (!allMappings[category]) {
         allMappings[category] = [];
       }
-      allMappings[category].push({ keyword, type: 'default' });
+      allMappings[category].push({ 
+        keyword, 
+        type: 'default',
+        isBaseDefault: BASE_DEFAULT_MAPPINGS.hasOwnProperty(keyword)
+      });
     });
     
     // Add custom mappings
@@ -184,10 +239,16 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
                 Unsaved Changes
               </span>
             )}
+            {isLoading && (
+              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                Loading...
+              </span>
+            )}
           </div>
           <button
             onClick={handleCancel}
-            className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+            disabled={isLoading}
+            className="p-1 hover:bg-gray-100 rounded-full transition-colors disabled:opacity-50"
           >
             <X className="h-5 w-5 text-gray-500" />
           </button>
@@ -202,7 +263,8 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
             <div className="flex gap-2">
               <button
                 onClick={() => setShowAddForm(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                disabled={isLoading}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
               >
                 <Plus className="h-4 w-4" />
                 Add Custom Mapping
@@ -210,7 +272,8 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
               
               <button
                 onClick={handleResetDefaults}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                disabled={isLoading}
+                className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
               >
                 <RotateCcw className="h-4 w-4" />
                 Reset Defaults
@@ -224,7 +287,7 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Keyword
+                    Keyword *
                   </label>
                   <input
                     type="text"
@@ -236,7 +299,7 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Category
+                    Category *
                   </label>
                   <select
                     value={newMapping.category}
@@ -253,7 +316,7 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
               <div className="flex gap-2 mt-4">
                 <button
                   onClick={handleAddMapping}
-                  disabled={!newMapping.keyword.trim() || !newMapping.category.trim()}
+                  disabled={!newMapping.keyword.trim() || !newMapping.category.trim() || isLoading}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
                 >
                   Add Mapping
@@ -263,7 +326,8 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
                     setShowAddForm(false);
                     setNewMapping({ keyword: '', category: '' });
                   }}
-                  className="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  disabled={isLoading}
+                  className="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
                 >
                   Cancel
                 </button>
@@ -286,7 +350,7 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
                   <div className="flex items-center justify-between mb-3">
                     <h4 className="font-medium text-gray-900">{category}</h4>
                     <span className="text-xs text-gray-500">
-                      {mappings.length} keywords ({mappings.filter(m => m.type === 'default').length} default, {mappings.filter(m => m.type === 'custom').length} custom)
+                      {mappings.length} keywords
                     </span>
                   </div>
                   
@@ -300,23 +364,13 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
                               value={mapping.keyword}
                               onChange={(e) => {
                                 const newKeyword = e.target.value.toLowerCase();
-                                if (newKeyword !== mapping.keyword) {
-                                  const oldCategory = defaultMappings[mapping.keyword];
-                                  setDefaultMappings(prev => {
-                                    const newMappings = { ...prev };
-                                    delete newMappings[mapping.keyword];
-                                    newMappings[newKeyword] = oldCategory;
-                                    return newMappings;
-                                  });
-                                  setEditingDefault(newKeyword);
-                                  setHasUnsavedChanges(true);
-                                }
+                                handleEditDefaultMapping(mapping.keyword, newKeyword, category);
                               }}
                               className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
                             />
                             <select
-                              value={defaultMappings[mapping.keyword]}
-                              onChange={(e) => handleEditDefaultMapping(mapping.keyword, e.target.value)}
+                              value={category}
+                              onChange={(e) => handleEditDefaultMapping(mapping.keyword, mapping.keyword, e.target.value)}
                               className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
                             >
                               {categories.map(cat => (
@@ -335,12 +389,12 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
                             <input
                               type="text"
                               value={mapping.keyword}
-                              onChange={(e) => mapping.id && handleEditMapping(mapping.id, 'keyword', e.target.value)}
+                              onChange={(e) => mapping.id && handleEditCustomMapping(mapping.id, 'keyword', e.target.value)}
                               className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
                             />
                             <select
                               value={category}
-                              onChange={(e) => mapping.id && handleEditMapping(mapping.id, 'category', e.target.value)}
+                              onChange={(e) => mapping.id && handleEditCustomMapping(mapping.id, 'category', e.target.value)}
                               className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
                             >
                               {categories.map(cat => (
@@ -362,12 +416,17 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
                               </span>
                               <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
                                 mapping.type === 'default' 
-                                  ? 'bg-blue-100 text-blue-800' 
+                                  ? mapping.isBaseDefault
+                                    ? 'bg-blue-100 text-blue-800' 
+                                    : 'bg-purple-100 text-purple-800'
                                   : mapping.isActive 
                                     ? 'bg-green-100 text-green-800' 
                                     : 'bg-gray-100 text-gray-800'
                               }`}>
-                                {mapping.type === 'default' ? 'Default' : mapping.isActive ? 'Custom' : 'Inactive'}
+                                {mapping.type === 'default' 
+                                  ? mapping.isBaseDefault ? 'Default' : 'Modified'
+                                  : mapping.isActive ? 'Custom' : 'Inactive'
+                                }
                               </span>
                             </div>
                             <div className="flex items-center gap-1">
@@ -378,6 +437,7 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
                                     checked={mapping.isActive}
                                     onChange={() => handleToggleActive(mapping.id!)}
                                     className="mr-1 text-xs"
+                                    disabled={isLoading}
                                   />
                                 </label>
                               )}
@@ -389,7 +449,8 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
                                     setEditingId(mapping.id);
                                   }
                                 }}
-                                className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                disabled={isLoading}
+                                className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors disabled:opacity-50"
                                 title="Edit mapping"
                               >
                                 <Edit2 className="h-3 w-3" />
@@ -399,10 +460,11 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
                                   if (mapping.type === 'default') {
                                     handleDeleteDefaultMapping(mapping.keyword);
                                   } else if (mapping.id) {
-                                    handleDeleteMapping(mapping.id);
+                                    handleDeleteCustomMapping(mapping.id);
                                   }
                                 }}
-                                className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                disabled={isLoading}
+                                className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
                                 title="Delete mapping"
                               >
                                 <Trash2 className="h-3 w-3" />
@@ -423,7 +485,7 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-gray-900">Custom Mappings Only</h3>
               <span className="text-sm text-gray-500">
-                {customMappings.length} custom mappings
+                {customMappings.length} custom mappings ({customMappings.filter(m => m.isActive).length} active)
               </span>
             </div>
 
@@ -452,8 +514,9 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
                             <input
                               type="text"
                               value={mapping.keyword}
-                              onChange={(e) => handleEditMapping(mapping.id, 'keyword', e.target.value)}
+                              onChange={(e) => handleEditCustomMapping(mapping.id, 'keyword', e.target.value)}
                               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              disabled={isLoading}
                             />
                           ) : (
                             <div className="px-3 py-2 bg-gray-100 rounded-lg text-sm font-mono">
@@ -468,8 +531,9 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
                           {editingId === mapping.id ? (
                             <select
                               value={mapping.category}
-                              onChange={(e) => handleEditMapping(mapping.id, 'category', e.target.value)}
+                              onChange={(e) => handleEditCustomMapping(mapping.id, 'category', e.target.value)}
                               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              disabled={isLoading}
                             >
                               {categories.map(category => (
                                 <option key={category} value={category}>{category}</option>
@@ -490,6 +554,7 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
                             checked={mapping.isActive}
                             onChange={() => handleToggleActive(mapping.id)}
                             className="mr-2"
+                            disabled={isLoading}
                           />
                           <span className="text-sm text-gray-600">Active</span>
                         </label>
@@ -497,22 +562,25 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
                         {editingId === mapping.id ? (
                           <button
                             onClick={() => setEditingId(null)}
-                            className="p-1 text-green-600 hover:bg-green-50 rounded transition-colors"
+                            disabled={isLoading}
+                            className="p-1 text-green-600 hover:bg-green-50 rounded transition-colors disabled:opacity-50"
                           >
                             <Save className="h-4 w-4" />
                           </button>
                         ) : (
                           <button
                             onClick={() => setEditingId(mapping.id)}
-                            className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                            disabled={isLoading}
+                            className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors disabled:opacity-50"
                           >
                             <Edit2 className="h-4 w-4" />
                           </button>
                         )}
                         
                         <button
-                          onClick={() => handleDeleteMapping(mapping.id)}
-                          className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                          onClick={() => handleDeleteCustomMapping(mapping.id)}
+                          disabled={isLoading}
+                          className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
@@ -528,7 +596,7 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
           {hasUnsavedChanges && (
             <div className="mt-6 bg-orange-50 rounded-lg p-4 border border-orange-200">
               <div className="flex items-center gap-2">
-                <span className="text-orange-600">⚠️</span>
+                <AlertTriangle className="h-4 w-4 text-orange-600" />
                 <span className="text-sm text-orange-800 font-medium">
                   You have unsaved changes. Make sure to save before closing.
                 </span>
@@ -540,16 +608,17 @@ export function MappingManager({ isOpen, onClose, onMappingsUpdated }: MappingMa
         <div className="flex justify-end gap-3 p-6 border-t border-gray-200">
           <button
             onClick={handleCancel}
-            className="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            disabled={isLoading}
+            className="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             onClick={handleSave}
-            disabled={!hasUnsavedChanges}
+            disabled={!hasUnsavedChanges || isLoading}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
           >
-            Save Changes
+            {isLoading ? 'Saving...' : 'Save Changes'}
           </button>
         </div>
       </div>

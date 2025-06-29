@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, BarChart3, CreditCard, Settings, DollarSign, Database, Cloud } from 'lucide-react';
+import { Plus, BarChart3, CreditCard, Settings, DollarSign, Database, Cloud, Trash2 } from 'lucide-react';
 import { Transaction, SalaryEntry } from './types';
 import { Dashboard } from './components/Dashboard';
 import { FileUpload } from './components/FileUpload';
@@ -19,6 +19,7 @@ function App() {
   const [showFieldMappingManager, setShowFieldMappingManager] = useState(false);
   const [showSalaryManager, setShowSalaryManager] = useState(false);
   const [showGoogleSheetsManager, setShowGoogleSheetsManager] = useState(false);
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'transactions' | 'analytics' | 'sheets'>('dashboard');
   const [mappingsVersion, setMappingsVersion] = useState(0);
   const [selectedMonth, setSelectedMonth] = useState<string>('');
@@ -141,6 +142,18 @@ function App() {
     setAnalyticsKey(prev => prev + 1);
   };
 
+  const handleDeleteAllTransactions = () => {
+    setTransactions([]);
+    setAnalyticsKey(prev => prev + 1);
+    setShowDeleteConfirmation(false);
+    
+    // Clear from storage as well
+    sessionStorage.removeItem('expense-tracker-session-transactions');
+    localStorage.removeItem('expense-tracker-transactions');
+    
+    console.log('All transactions deleted');
+  };
+
   const handleMappingsUpdated = () => {
     setMappingsVersion(prev => prev + 1);
   };
@@ -248,6 +261,17 @@ function App() {
                       <Database className="h-5 w-5" />
                       Field Mappings
                     </button>
+
+                    {/* Delete All Transactions Button */}
+                    {transactions.length > 0 && (
+                      <button
+                        onClick={() => setShowDeleteConfirmation(true)}
+                        className="w-full flex items-center gap-3 px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                      >
+                        <Trash2 className="h-5 w-5" />
+                        Delete All Transactions
+                      </button>
+                    )}
                     
                     <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-200">
                       <div className="text-center">
@@ -300,6 +324,15 @@ function App() {
                     <Plus className="h-4 w-4" />
                     Add Transaction
                   </button>
+                  {transactions.length > 0 && (
+                    <button
+                      onClick={() => setShowDeleteConfirmation(true)}
+                      className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Delete All
+                    </button>
+                  )}
                 </div>
               </div>
               <TransactionList 
@@ -339,6 +372,50 @@ function App() {
             </div>
           )}
         </div>
+
+        {/* Delete Confirmation Modal */}
+        {showDeleteConfirmation && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md mx-4">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-3 bg-red-100 rounded-full">
+                  <Trash2 className="h-6 w-6 text-red-600" />
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900">Delete All Transactions</h3>
+              </div>
+              
+              <div className="mb-6">
+                <p className="text-gray-600 mb-3">
+                  Are you sure you want to delete all {transactions.length} transactions? This action cannot be undone.
+                </p>
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                  <p className="text-red-800 text-sm font-medium">⚠️ Warning:</p>
+                  <ul className="text-red-700 text-sm mt-1 space-y-1">
+                    <li>• All transaction data will be permanently removed</li>
+                    <li>• This will clear both session and persistent storage</li>
+                    <li>• Analytics and reports will be reset</li>
+                    <li>• Consider exporting your data first</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowDeleteConfirmation(false)}
+                  className="flex-1 px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDeleteAllTransactions}
+                  className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                >
+                  Delete All
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Modals */}
         <TransactionForm

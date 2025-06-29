@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Upload, FileText, Settings, DollarSign, Eye, Edit2, Save, X, AlertCircle } from 'lucide-react';
 import { Transaction, FieldMapping, ParsedTransaction } from '../types';
@@ -15,13 +15,42 @@ interface FileUploadProps {
 export function FileUpload({ onTransactionsLoaded, onSalaryEntriesFound, onOpenMappingManager }: FileUploadProps) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [fieldMappings] = useState<FieldMapping[]>(loadFieldMappings());
+  const [fieldMappings, setFieldMappings] = useState<FieldMapping[]>([]);
   const [selectedMapping, setSelectedMapping] = useState<FieldMapping>(getDefaultMapping());
   const [parsedData, setParsedData] = useState<ParsedTransaction[]>([]);
   const [showParseResults, setShowParseResults] = useState(false);
   const [editingEntries, setEditingEntries] = useState<{ [key: number]: ParsedTransaction }>({});
   const [categories] = useState(getAllCategories());
   const [fileHeaders, setFileHeaders] = useState<string[]>([]);
+
+  // Load field mappings on component mount and when mappings are updated
+  useEffect(() => {
+    const loadMappings = () => {
+      const mappings = loadFieldMappings();
+      setFieldMappings(mappings);
+      
+      // Update selected mapping if it exists in the new list
+      const currentMapping = mappings.find(m => m.id === selectedMapping.id);
+      if (currentMapping) {
+        setSelectedMapping(currentMapping);
+      } else {
+        // Fallback to default if current mapping is not found
+        setSelectedMapping(getDefaultMapping());
+      }
+    };
+
+    loadMappings();
+
+    // Listen for storage changes to update mappings when they're modified
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'expense-tracker-field-mappings' || e.key === 'expense-tracker-default-field-mappings') {
+        loadMappings();
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, [selectedMapping.id]);
 
   const processFile = async (file: File) => {
     setError(null);
@@ -176,7 +205,7 @@ export function FileUpload({ onTransactionsLoaded, onSalaryEntriesFound, onOpenM
         >
           {fieldMappings.map((mapping) => (
             <option key={mapping.id} value={mapping.id}>
-              {mapping.bankName}
+              {mapping.bankName} {mapping.isDefault ? '(Default)' : '(Custom)'}
             </option>
           ))}
         </select>

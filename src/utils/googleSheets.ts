@@ -185,15 +185,6 @@ export async function getOrCreateYearlySpreadsheet(
             },
           },
         },
-        {
-          properties: {
-            title: "Analytics",
-            gridProperties: {
-              rowCount: 50,
-              columnCount: 10,
-            },
-          },
-        },
       ],
     });
 
@@ -201,9 +192,6 @@ export async function getOrCreateYearlySpreadsheet(
 
     // Add headers to January sheet
     await addHeadersToSheet(spreadsheetId, "January");
-    
-    // Set up Analytics sheet
-    await setupAnalyticsSheet(spreadsheetId);
 
     return spreadsheetId;
   } catch (error) {
@@ -247,27 +235,6 @@ export async function getOrCreateMonthlySheet(
 
       // Add headers to the new sheet
       await addHeadersToSheet(spreadsheetId, month);
-    }
-
-    // Ensure Analytics sheet exists
-    if (!existingSheets.includes("Analytics")) {
-      await window.gapi.client.sheets.spreadsheets.batchUpdate({
-        spreadsheetId: spreadsheetId,
-        requests: [
-          {
-            addSheet: {
-              properties: {
-                title: "Analytics",
-                gridProperties: {
-                  rowCount: 50,
-                  columnCount: 10,
-                },
-              },
-            },
-          },
-        ],
-      });
-      await setupAnalyticsSheet(spreadsheetId);
     }
   } catch (error) {
     console.error("Failed to create monthly sheet:", error);
@@ -321,52 +288,6 @@ async function addHeadersToSheet(
   });
 }
 
-// Setup Analytics sheet with charts
-async function setupAnalyticsSheet(spreadsheetId: string): Promise<void> {
-  const analyticsSheetId = await getSheetId(spreadsheetId, "Analytics");
-  
-  // Add headers for summary data
-  await window.gapi.client.sheets.spreadsheets.values.update({
-    spreadsheetId: spreadsheetId,
-    range: "Analytics!A1:E1",
-    valueInputOption: "RAW",
-    values: [["Month", "Income", "Expenses", "Balance", "Category Analysis"]],
-  });
-
-  // Add category analysis headers
-  await window.gapi.client.sheets.spreadsheets.values.update({
-    spreadsheetId: spreadsheetId,
-    range: "Analytics!G1:H1",
-    valueInputOption: "RAW",
-    values: [["Category", "Amount"]],
-  });
-
-  // Format headers
-  await window.gapi.client.sheets.spreadsheets.batchUpdate({
-    spreadsheetId: spreadsheetId,
-    requests: [
-      {
-        repeatCell: {
-          range: {
-            sheetId: analyticsSheetId,
-            startRowIndex: 0,
-            endRowIndex: 1,
-            startColumnIndex: 0,
-            endColumnIndex: 8,
-          },
-          cell: {
-            userEnteredFormat: {
-              backgroundColor: { red: 0.2, green: 0.4, blue: 0.8 },
-              textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
-            },
-          },
-          fields: "userEnteredFormat(backgroundColor,textFormat)",
-        },
-      },
-    ],
-  });
-}
-
 // Get sheet ID by name
 async function getSheetId(
   spreadsheetId: string,
@@ -380,272 +301,6 @@ async function getSheetId(
     (s) => s.properties?.title === sheetName
   );
   return sheet?.properties?.sheetId || 0;
-}
-
-// Update analytics in Google Sheets
-async function updateAnalyticsInSheets(
-  spreadsheetId: string,
-  transactions: Transaction[]
-): Promise<void> {
-  try {
-    // Calculate monthly data
-    const monthlyData = calculateMonthlyAnalytics(transactions);
-    const categoryData = calculateCategoryAnalytics(transactions);
-
-    // Clear existing analytics data
-    await window.gapi.client.sheets.spreadsheets.values.clear({
-      spreadsheetId: spreadsheetId,
-      range: "Analytics!A2:H",
-    });
-
-    // Update monthly data
-    if (monthlyData.length > 0) {
-      const monthlyValues = monthlyData.map(data => [
-        data.month,
-        data.income,
-        data.expenses,
-        data.balance
-      ]);
-
-      await window.gapi.client.sheets.spreadsheets.values.update({
-        spreadsheetId: spreadsheetId,
-        range: `Analytics!A2:D${monthlyValues.length + 1}`,
-        valueInputOption: "RAW",
-        values: monthlyValues,
-      });
-    }
-
-    // Update category data
-    if (categoryData.length > 0) {
-      const categoryValues = categoryData.map(data => [
-        data.category,
-        data.amount
-      ]);
-
-      await window.gapi.client.sheets.spreadsheets.values.update({
-        spreadsheetId: spreadsheetId,
-        range: `Analytics!G2:H${categoryValues.length + 1}`,
-        valueInputOption: "RAW",
-        values: categoryValues,
-      });
-    }
-
-    // Create charts
-    await createChartsInAnalytics(spreadsheetId, monthlyData.length, categoryData.length);
-
-  } catch (error) {
-    console.error("Failed to update analytics:", error);
-  }
-}
-
-// Calculate monthly analytics
-function calculateMonthlyAnalytics(transactions: Transaction[]) {
-  const monthlyMap = new Map<string, { income: number; expenses: number }>();
-  
-  transactions.forEach(transaction => {
-    const date = new Date(transaction.date);
-    const monthKey = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-    const existing = monthlyMap.get(monthKey) || { income: 0, expenses: 0 };
-    
-    if (transaction.type === 'credit') {
-      existing.income += transaction.amount;
-    } else {
-      existing.expenses += transaction.amount;
-    }
-    
-    monthlyMap.set(monthKey, existing);
-  });
-  
-  return Array.from(monthlyMap.entries())
-    .map(([month, data]) => ({
-      month,
-      income: data.income,
-      expenses: data.expenses,
-      balance: data.income - data.expenses,
-    }))
-    .sort((a, b) => a.month.localeCompare(b.month));
-}
-
-// Calculate category analytics
-function calculateCategoryAnalytics(transactions: Transaction[]) {
-  const categoryMap = new Map<string, number>();
-  
-  transactions
-    .filter(t => t.type === 'debit')
-    .forEach(transaction => {
-      const existing = categoryMap.get(transaction.category) || 0;
-      categoryMap.set(transaction.category, existing + transaction.amount);
-    });
-  
-  return Array.from(categoryMap.entries())
-    .map(([category, amount]) => ({ category, amount }))
-    .sort((a, b) => b.amount - a.amount);
-}
-
-// Create charts in Analytics sheet
-async function createChartsInAnalytics(
-  spreadsheetId: string,
-  monthlyDataRows: number,
-  categoryDataRows: number
-): Promise<void> {
-  const analyticsSheetId = await getSheetId(spreadsheetId, "Analytics");
-  
-  const requests = [];
-
-  // Monthly Income vs Expenses Bar Chart
-  if (monthlyDataRows > 0) {
-    requests.push({
-      addChart: {
-        chart: {
-          spec: {
-            title: "Monthly Income vs Expenses",
-            basicChart: {
-              chartType: "COLUMN",
-              legendPosition: "BOTTOM_LEGEND",
-              axis: [
-                {
-                  position: "BOTTOM_AXIS",
-                  title: "Month"
-                },
-                {
-                  position: "LEFT_AXIS",
-                  title: "Amount (₹)"
-                }
-              ],
-              domains: [
-                {
-                  domain: {
-                    sourceRange: {
-                      sources: [
-                        {
-                          sheetId: analyticsSheetId,
-                          startRowIndex: 1,
-                          endRowIndex: monthlyDataRows + 1,
-                          startColumnIndex: 0,
-                          endColumnIndex: 1,
-                        },
-                      ],
-                    },
-                  },
-                },
-              ],
-              series: [
-                {
-                  series: {
-                    sourceRange: {
-                      sources: [
-                        {
-                          sheetId: analyticsSheetId,
-                          startRowIndex: 1,
-                          endRowIndex: monthlyDataRows + 1,
-                          startColumnIndex: 1,
-                          endColumnIndex: 2,
-                        },
-                      ],
-                    },
-                  },
-                  targetAxis: "LEFT_AXIS",
-                  color: { red: 0.2, green: 0.8, blue: 0.2 },
-                },
-                {
-                  series: {
-                    sourceRange: {
-                      sources: [
-                        {
-                          sheetId: analyticsSheetId,
-                          startRowIndex: 1,
-                          endRowIndex: monthlyDataRows + 1,
-                          startColumnIndex: 2,
-                          endColumnIndex: 3,
-                        },
-                      ],
-                    },
-                  },
-                  targetAxis: "LEFT_AXIS",
-                  color: { red: 0.8, green: 0.2, blue: 0.2 },
-                },
-              ],
-            },
-          },
-          position: {
-            overlayPosition: {
-              anchorCell: {
-                sheetId: analyticsSheetId,
-                rowIndex: 4,
-                columnIndex: 0,
-              },
-              offsetXPixels: 0,
-              offsetYPixels: 0,
-              widthPixels: 600,
-              heightPixels: 400,
-            },
-          },
-        },
-      },
-    });
-  }
-
-  // Category Expenses Pie Chart
-  if (categoryDataRows > 0) {
-    requests.push({
-      addChart: {
-        chart: {
-          spec: {
-            title: "Expense Categories",
-            pieChart: {
-              legendPosition: "RIGHT_LEGEND",
-              domain: {
-                sourceRange: {
-                  sources: [
-                    {
-                      sheetId: analyticsSheetId,
-                      startRowIndex: 1,
-                      endRowIndex: Math.min(categoryDataRows + 1, 11), // Limit to top 10
-                      startColumnIndex: 6,
-                      endColumnIndex: 7,
-                    },
-                  ],
-                },
-              },
-              series: {
-                sourceRange: {
-                  sources: [
-                    {
-                      sheetId: analyticsSheetId,
-                      startRowIndex: 1,
-                      endRowIndex: Math.min(categoryDataRows + 1, 11), // Limit to top 10
-                      startColumnIndex: 7,
-                      endColumnIndex: 8,
-                    },
-                  ],
-                },
-              },
-            },
-          },
-          position: {
-            overlayPosition: {
-              anchorCell: {
-                sheetId: analyticsSheetId,
-                rowIndex: 4,
-                columnIndex: 6,
-              },
-              offsetXPixels: 0,
-              offsetYPixels: 0,
-              widthPixels: 500,
-              heightPixels: 400,
-            },
-          },
-        },
-      },
-    });
-  }
-
-  if (requests.length > 0) {
-    await window.gapi.client.sheets.spreadsheets.batchUpdate({
-      spreadsheetId: spreadsheetId,
-      requests: requests,
-    });
-  }
 }
 
 // Save transactions to Google Sheets
@@ -709,35 +364,9 @@ export async function saveTransactionsToGoogleSheets(
         },
       ],
     });
-
-    // Update analytics with all transactions from the year
-    const allTransactions = await loadAllTransactionsFromYear(year);
-    await updateAnalyticsInSheets(spreadsheetId, allTransactions);
   } catch (error) {
     console.error("Failed to save transactions to Google Sheets:", error);
     throw new Error("Failed to save to Google Sheets");
-  }
-}
-
-// Load all transactions from a year
-async function loadAllTransactionsFromYear(year: number): Promise<Transaction[]> {
-  try {
-    const spreadsheetId = await getOrCreateYearlySpreadsheet(year);
-    const availableMonths = await getAvailableMonths(year);
-    
-    const allTransactions: Transaction[] = [];
-    
-    for (const month of availableMonths) {
-      if (month === "Analytics") continue; // Skip analytics sheet
-      
-      const monthTransactions = await loadTransactionsFromGoogleSheets(year, month);
-      allTransactions.push(...monthTransactions);
-    }
-    
-    return allTransactions;
-  } catch (error) {
-    console.error("Failed to load all transactions from year:", error);
-    return [];
   }
 }
 
@@ -783,7 +412,6 @@ export async function loadTransactionsFromMultipleMonths(
     const allTransactions: Transaction[] = [];
     
     for (const month of months) {
-      if (month === "Analytics") continue; // Skip analytics sheet
       const monthTransactions = await loadTransactionsFromGoogleSheets(year, month);
       allTransactions.push(...monthTransactions);
     }

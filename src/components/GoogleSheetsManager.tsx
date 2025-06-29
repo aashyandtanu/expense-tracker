@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Cloud, CloudOff, Download, Upload, Calendar, FileSpreadsheet, AlertCircle, CheckCircle, Loader, ExternalLink, Copy, Eye, EyeOff, BarChart3 } from 'lucide-react';
+import { Cloud, CloudOff, Download, Upload, Calendar, FileSpreadsheet, AlertCircle, CheckCircle, Loader, ExternalLink, Copy, Eye, EyeOff } from 'lucide-react';
 import { Transaction } from '../types';
 import {
   loadGoogleSheetsConfig,
@@ -136,9 +136,8 @@ export function GoogleSheetsManager({
     setIsLoading(true);
     try {
       const months = await getAvailableMonths(loadYear);
-      const filteredMonths = months.filter(month => month !== 'Analytics');
-      setAvailableMonths(filteredMonths);
-      showStatus('info', `Found ${filteredMonths.length} months for ${loadYear}`);
+      setAvailableMonths(months);
+      showStatus('info', `Found ${months.length} months for ${loadYear}`);
     } catch (error) {
       console.error('Failed to load months:', error);
       showStatus('error', 'Failed to load available months');
@@ -156,8 +155,7 @@ export function GoogleSheetsManager({
       
       if (loadMode === 'year') {
         // Load all months from the year
-        const allMonths = availableMonths.filter(month => month !== 'Analytics');
-        loadedTransactions = await loadTransactionsFromMultipleMonths(loadYear, allMonths);
+        loadedTransactions = await loadTransactionsFromMultipleMonths(loadYear, availableMonths);
         showStatus('success', `Loaded ${loadedTransactions.length} transactions from entire year ${loadYear}`);
       } else if (loadMode === 'multiple') {
         // Load selected months
@@ -177,6 +175,7 @@ export function GoogleSheetsManager({
         showStatus('success', `Loaded ${loadedTransactions.length} transactions from ${selectedMonths[0]} ${loadYear}`);
       }
       
+      // Replace current transactions and trigger analytics refresh
       onTransactionsLoaded(loadedTransactions);
     } catch (error) {
       console.error('Failed to load transactions:', error);
@@ -192,7 +191,7 @@ export function GoogleSheetsManager({
     setIsLoading(true);
     try {
       await saveTransactionsToGoogleSheets(transactions, saveYear, saveMonth);
-      showStatus('success', `Saved ${transactions.length} transactions to ${saveMonth} ${saveYear} with analytics charts`);
+      showStatus('success', `Saved ${transactions.length} transactions to ${saveMonth} ${saveYear}`);
     } catch (error) {
       console.error('Failed to save transactions:', error);
       showStatus('error', 'Failed to save transactions to Google Sheets');
@@ -460,15 +459,15 @@ export function GoogleSheetsManager({
           <CloudOff className="h-16 w-16 mx-auto text-gray-300 mb-4" />
           <h3 className="text-lg font-medium text-gray-900 mb-2">Connect to Google Sheets</h3>
           <p className="text-gray-600 mb-4">
-            Store your transactions in Google Sheets organized by year and month with automatic analytics charts.
+            Store your transactions in Google Sheets organized by year and month.
+            Each year gets its own spreadsheet with monthly sheets.
           </p>
           <div className="bg-gray-50 rounded-lg p-4 text-left">
-            <h4 className="font-medium text-gray-900 mb-2">Enhanced Features:</h4>
+            <h4 className="font-medium text-gray-900 mb-2">How it works:</h4>
             <ul className="text-sm text-gray-600 space-y-1">
-              <li>• Creates one spreadsheet per year with monthly sheets</li>
-              <li>• Automatic analytics sheet with pie charts and bar graphs</li>
-              <li>• Load single month, multiple months, or entire year</li>
-              <li>• Real-time analytics refresh when loading data</li>
+              <li>• Creates one spreadsheet per year (e.g., "Expense Tracker 2024")</li>
+              <li>• Each month gets its own sheet within the yearly spreadsheet</li>
+              <li>• Load specific months when needed - keeps the app lightweight</li>
               <li>• Export to Excel for offline backup</li>
               <li>• All data syncs across devices</li>
             </ul>
@@ -564,14 +563,9 @@ export function GoogleSheetsManager({
                 <button
                   onClick={handleLoadTransactions}
                   disabled={isLoading || (loadMode !== 'year' && selectedMonths.length === 0)}
-                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
                 >
-                  {isLoading ? (
-                    <Loader className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <BarChart3 className="h-4 w-4" />
-                  )}
-                  {isLoading ? 'Loading...' : 'Load & Refresh Analytics'}
+                  {isLoading ? 'Loading...' : 'Load Transactions'}
                 </button>
               </div>
             </div>
@@ -601,12 +595,7 @@ export function GoogleSheetsManager({
             )}
             
             <p className="text-xs text-gray-500">
-              {loadMode === 'year' 
-                ? 'This will load all transactions from the selected year and refresh analytics.'
-                : loadMode === 'multiple'
-                ? 'This will load transactions from selected months and refresh analytics.'
-                : 'This will load transactions from the selected month and refresh analytics.'
-              }
+              This will replace current transactions with data from the selected period and refresh analytics.
             </p>
           </div>
 
@@ -653,20 +642,15 @@ export function GoogleSheetsManager({
                 <button
                   onClick={handleSaveTransactions}
                   disabled={!saveMonth || transactions.length === 0 || isLoading}
-                  className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
                 >
-                  {isLoading ? (
-                    <Loader className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <BarChart3 className="h-4 w-4" />
-                  )}
-                  {isLoading ? 'Saving...' : `Save ${transactions.length} + Charts`}
+                  {isLoading ? 'Saving...' : `Save ${transactions.length} Transactions`}
                 </button>
               </div>
             </div>
             
             <p className="text-xs text-gray-500">
-              This will save transactions to the selected month and update analytics with charts.
+              This will overwrite existing data in the selected month sheet.
             </p>
           </div>
 
@@ -699,13 +683,12 @@ export function GoogleSheetsManager({
 
           {/* Usage Tips */}
           <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-            <h4 className="font-medium text-blue-900 mb-2">💡 Enhanced Features</h4>
+            <h4 className="font-medium text-blue-900 mb-2">💡 Usage Tips</h4>
             <ul className="text-sm text-blue-800 space-y-1">
-              <li>• Automatic analytics sheet with pie charts and bar graphs</li>
-              <li>• Load single month, multiple months, or entire year at once</li>
-              <li>• Analytics automatically refresh when loading transactions</li>
-              <li>• Charts show monthly income vs expenses and category breakdowns</li>
-              <li>• Source column removed for cleaner Google Sheets data</li>
+              <li>• Use this tool monthly to save your transactions to Google Sheets</li>
+              <li>• Load specific months when you need to review historical data</li>
+              <li>• Export to Excel for offline analysis or backup</li>
+              <li>• Each year gets its own spreadsheet for better organization</li>
               <li>• Data is automatically formatted with currency and proper headers</li>
             </ul>
           </div>

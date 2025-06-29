@@ -31,10 +31,13 @@ function App() {
     const sessionTransactions = sessionStorage.getItem('expense-tracker-session-transactions');
     if (sessionTransactions) {
       try {
-        setTransactions(JSON.parse(sessionTransactions));
+        const parsed = JSON.parse(sessionTransactions);
+        setTransactions(parsed);
+        console.log('Loaded transactions from session storage:', parsed.length);
         return;
       } catch (error) {
         console.error('Failed to load session transactions:', error);
+        sessionStorage.removeItem('expense-tracker-session-transactions');
       }
     }
 
@@ -46,14 +49,18 @@ function App() {
         setTransactions(parsed);
         // Also save to session storage for this session
         sessionStorage.setItem('expense-tracker-session-transactions', savedTransactions);
+        console.log('Loaded transactions from localStorage and saved to session:', parsed.length);
       } catch (error) {
         console.error('Failed to load saved transactions:', error);
+        localStorage.removeItem('expense-tracker-transactions');
       }
     }
   }, []);
 
   // Save transactions to both sessionStorage and localStorage
   useEffect(() => {
+    if (transactions.length === 0) return; // Don't save empty array on initial load
+    
     const transactionsJson = JSON.stringify(transactions);
     
     // Save to session storage (for current session)
@@ -61,6 +68,8 @@ function App() {
     
     // Save to localStorage (persistent)
     localStorage.setItem('expense-tracker-transactions', transactionsJson);
+    
+    console.log('Saved transactions to storage:', transactions.length);
   }, [transactions]);
 
   const handleTransactionsLoaded = (newTransactions: Transaction[]) => {

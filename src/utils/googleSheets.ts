@@ -425,6 +425,30 @@ export async function saveTransactionsToGoogleSheets(
   }
 }
 
+// Parse amount value from Google Sheets (handles various formats)
+function parseSheetAmount(value: any): number {
+  if (value === null || value === undefined || value === '') return 0;
+  
+  // If it's already a number, return it
+  if (typeof value === 'number') return Math.abs(value);
+  
+  // Convert to string and clean it
+  const str = value.toString().trim();
+  if (!str) return 0;
+  
+  // Remove currency symbols, commas, and spaces
+  const cleanStr = str.replace(/[₹$£€,\s]/g, '');
+  
+  // Handle parentheses as negative (accounting format)
+  const isNegative = cleanStr.includes('(') && cleanStr.includes(')');
+  const numStr = cleanStr.replace(/[()]/g, '');
+  
+  const amount = parseFloat(numStr);
+  if (isNaN(amount)) return 0;
+  
+  return Math.abs(amount); // Always return positive amount
+}
+
 // Load transactions from Google Sheets (single month)
 export async function loadTransactionsFromGoogleSheets(
   year: number,
@@ -440,18 +464,24 @@ export async function loadTransactionsFromGoogleSheets(
 
     const rows = response.result.values || [];
 
-    return rows.map((row, index) => ({
-      id: `sheets-${year}-${month}-${index}`,
-      date: row[0] || "",
-      description: row[1] || "",
-      amount: parseFloat(row[2]) || 0,
-      type: (row[3]?.toLowerCase() === "credit" ? "credit" : "debit") as
-        | "credit"
-        | "debit",
-      category: row[4] || "Miscellaneous",
-      source: "manual" as "excel" | "csv" | "manual",
-      isManual: true,
-    }));
+    return rows
+      .filter(row => row && row.length >= 4) // Ensure we have minimum required data
+      .map((row, index) => {
+        const amount = parseSheetAmount(row[2]);
+        const type = (row[3]?.toString().toLowerCase().includes('credit') ? 'credit' : 'debit') as 'credit' | 'debit';
+        
+        return {
+          id: `sheets-${year}-${month}-${index}-${Date.now()}`,
+          date: row[0] || new Date().toISOString().split('T')[0],
+          description: row[1] || 'Unknown Transaction',
+          amount: amount,
+          type: type,
+          category: row[4] || 'Miscellaneous',
+          source: 'manual' as const,
+          isManual: true,
+        };
+      })
+      .filter(transaction => transaction.amount > 0); // Filter out invalid amounts
   } catch (error) {
     console.error("Failed to load transactions from Google Sheets:", error);
     return [];

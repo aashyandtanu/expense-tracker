@@ -197,25 +197,29 @@ function processRawParseResults(
 
     const transactions: Transaction[] = [];
     const parsedData: ParsedTransaction[] = [];
+    const processedTransactions = new Set<string>(); // Track processed transactions
 
     validData.forEach((row: any, index: number) => {
       const parseResult = parseTransactionRow(row, mapping, index);
       parsedData.push(parseResult);
 
       if (parseResult.success) {
-        // Enhanced categorization for credits
-        let category = categorizeTransaction(parseResult.description);
-
-        // If it's a credit and not already categorized as salary/bonus, mark as Credits
-        if (
-          parseResult.type === "credit" &&
-          !["Salary", "Bonus", "Investment Returns"].includes(category)
-        ) {
-          category = "Credits";
+        // Create a unique key for deduplication
+        const transactionKey = `${parseResult.date}-${parseResult.description}-${parseResult.amount}-${parseResult.type}`;
+        
+        // Skip if we've already processed this transaction
+        if (processedTransactions.has(transactionKey)) {
+          console.log('Skipping duplicate transaction:', transactionKey);
+          return;
         }
+        
+        processedTransactions.add(transactionKey);
+
+        // Enhanced categorization
+        const category = categorizeTransaction(parseResult.description);
 
         const transaction: Transaction = {
-          id: `excel-${index}-${Date.now()}`,
+          id: `excel-${index}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           date: parseResult.date,
           description: parseResult.description,
           amount: parseResult.amount,
@@ -731,6 +735,8 @@ function isCreditTransaction(description: string): boolean {
     "received",
     "credited",
     "incoming",
+    "refund",
+    "cashback"
   ];
 
   return creditKeywords.some((keyword) => lowerDesc.includes(keyword));

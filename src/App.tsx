@@ -11,6 +11,7 @@ import { FieldMappingManager } from './components/FieldMappingManager';
 import { SalaryManager } from './components/SalaryManager';
 import { GoogleSheetsManager } from './components/GoogleSheetsManager';
 import { MonthSelector } from './components/MonthSelector';
+import { initializeUserMappings } from './utils/categoryMappings';
 
 function App() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -24,7 +25,13 @@ function App() {
   const [mappingsVersion, setMappingsVersion] = useState(0);
   const [selectedMonth, setSelectedMonth] = useState<string>('');
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
-  const [analyticsKey, setAnalyticsKey] = useState(0); // Force analytics refresh
+  const [analyticsKey, setAnalyticsKey] = useState(0);
+  const [dashboardKey, setDashboardKey] = useState(0);
+
+  // Initialize category mappings on app start
+  useEffect(() => {
+    initializeUserMappings();
+  }, []);
 
   // Load transactions from sessionStorage first, then localStorage
   useEffect(() => {
@@ -73,16 +80,47 @@ function App() {
     console.log('Saved transactions to storage:', transactions.length);
   }, [transactions]);
 
-  const handleTransactionsLoaded = (newTransactions: Transaction[]) => {
-    setTransactions(prev => [...prev, ...newTransactions]);
-    // Force analytics refresh
+  // Listen for category mapping updates
+  useEffect(() => {
+    const handleMappingsUpdate = () => {
+      setMappingsVersion(prev => prev + 1);
+      setAnalyticsKey(prev => prev + 1);
+      setDashboardKey(prev => prev + 1);
+    };
+
+    window.addEventListener('categoryMappingsUpdated', handleMappingsUpdate);
+    
+    return () => {
+      window.removeEventListener('categoryMappingsUpdated', handleMappingsUpdate);
+    };
+  }, []);
+
+  const refreshAllViews = () => {
     setAnalyticsKey(prev => prev + 1);
+    setDashboardKey(prev => prev + 1);
+    setMappingsVersion(prev => prev + 1);
+  };
+
+  const handleTransactionsLoaded = (newTransactions: Transaction[]) => {
+    // Remove duplicates based on description, amount, and date
+    const existingTransactionKeys = new Set(
+      transactions.map(t => `${t.description}-${t.amount}-${t.date}`)
+    );
+    
+    const uniqueNewTransactions = newTransactions.filter(t => {
+      const key = `${t.description}-${t.amount}-${t.date}`;
+      return !existingTransactionKeys.has(key);
+    });
+    
+    if (uniqueNewTransactions.length > 0) {
+      setTransactions(prev => [...prev, ...uniqueNewTransactions]);
+      refreshAllViews();
+    }
   };
 
   const handleTransactionsReplaced = (newTransactions: Transaction[]) => {
     setTransactions(newTransactions);
-    // Force analytics refresh
-    setAnalyticsKey(prev => prev + 1);
+    refreshAllViews();
   };
 
   const handleSalaryEntriesFound = (entries: Array<{ amount: number; date: string; description: string }>) => {
@@ -100,8 +138,7 @@ function App() {
     }));
 
     if (salaryTransactions.length > 0) {
-      setTransactions(prev => [...prev, ...salaryTransactions]);
-      setAnalyticsKey(prev => prev + 1);
+      handleTransactionsLoaded(salaryTransactions);
     }
   };
 
@@ -112,7 +149,7 @@ function App() {
       source: 'manual',
     };
     setTransactions(prev => [newTransaction, ...prev]);
-    setAnalyticsKey(prev => prev + 1);
+    refreshAllViews();
   };
 
   const handleAddSalary = (salaryData: Omit<SalaryEntry, 'id'>) => {
@@ -127,24 +164,24 @@ function App() {
       source: 'manual',
     };
     setTransactions(prev => [salaryTransaction, ...prev]);
-    setAnalyticsKey(prev => prev + 1);
+    refreshAllViews();
   };
 
   const handleDeleteTransaction = (id: string) => {
     setTransactions(prev => prev.filter(t => t.id !== id));
-    setAnalyticsKey(prev => prev + 1);
+    refreshAllViews();
   };
 
   const handleUpdateTransaction = (id: string, updatedData: Partial<Transaction>) => {
     setTransactions(prev => prev.map(t => 
       t.id === id ? { ...t, ...updatedData } : t
     ));
-    setAnalyticsKey(prev => prev + 1);
+    refreshAllViews();
   };
 
   const handleDeleteAllTransactions = () => {
     setTransactions([]);
-    setAnalyticsKey(prev => prev + 1);
+    refreshAllViews();
     setShowDeleteConfirmation(false);
     
     // Clear from storage as well
@@ -155,7 +192,7 @@ function App() {
   };
 
   const handleMappingsUpdated = () => {
-    setMappingsVersion(prev => prev + 1);
+    refreshAllViews();
   };
 
   const handleMonthYearSelect = (month: string, year: number) => {
@@ -172,34 +209,34 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
-      <div className="container mx-auto px-4 py-8">
+      <div className="container mx-auto px-4 py-6 lg:py-8">
         {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">
+        <div className="text-center mb-6 lg:mb-8">
+          <h1 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-2">
             ExpenseTracker Pro
           </h1>
-          <p className="text-gray-600 text-lg">
+          <p className="text-gray-600 text-base lg:text-lg">
             Smart financial management with Google Sheets integration and custom field mappings
           </p>
         </div>
 
         {/* Navigation Tabs */}
-        <div className="flex justify-center mb-8">
-          <div className="bg-white rounded-lg shadow-md p-1 flex">
+        <div className="flex justify-center mb-6 lg:mb-8">
+          <div className="bg-white rounded-lg shadow-md p-1 flex overflow-x-auto">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               return (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id as any)}
-                  className={`flex items-center gap-2 px-6 py-3 rounded-md transition-all duration-200 ${
+                  className={`flex items-center gap-2 px-4 lg:px-6 py-2 lg:py-3 rounded-md transition-all duration-200 whitespace-nowrap ${
                     activeTab === tab.id
                       ? 'bg-blue-600 text-white shadow-md'
                       : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
                   }`}
                 >
                   <Icon className="h-4 w-4" />
-                  {tab.label}
+                  <span className="hidden sm:inline">{tab.label}</span>
                 </button>
               );
             })}
@@ -207,12 +244,12 @@ function App() {
         </div>
 
         {/* Content */}
-        <div className="space-y-8">
+        <div className="space-y-6 lg:space-y-8">
           {activeTab === 'dashboard' && (
             <>
-              <Dashboard transactions={transactions} />
+              <Dashboard key={dashboardKey} transactions={transactions} />
               
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
                 <FileUpload 
                   onTransactionsLoaded={handleTransactionsLoaded}
                   onSalaryEntriesFound={handleSalaryEntriesFound}
@@ -221,7 +258,7 @@ function App() {
                 
                 <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-200">
                   <h2 className="text-xl font-semibold text-gray-900 mb-4">Quick Actions</h2>
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     <button
                       onClick={() => setShowTransactionForm(true)}
                       className="w-full flex items-center gap-3 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -308,21 +345,21 @@ function App() {
                     className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
                   >
                     <Database className="h-4 w-4" />
-                    Field Mappings
+                    <span className="hidden sm:inline">Field Mappings</span>
                   </button>
                   <button
                     onClick={() => setShowSalaryManager(true)}
                     className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
                   >
                     <DollarSign className="h-4 w-4" />
-                    Add Income
+                    <span className="hidden sm:inline">Add Income</span>
                   </button>
                   <button
                     onClick={() => setShowTransactionForm(true)}
                     className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                   >
                     <Plus className="h-4 w-4" />
-                    Add Transaction
+                    <span className="hidden sm:inline">Add Transaction</span>
                   </button>
                   {transactions.length > 0 && (
                     <button
@@ -330,7 +367,7 @@ function App() {
                       className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
                     >
                       <Trash2 className="h-4 w-4" />
-                      Delete All
+                      <span className="hidden sm:inline">Delete All</span>
                     </button>
                   )}
                 </div>
@@ -375,8 +412,8 @@ function App() {
 
         {/* Delete Confirmation Modal */}
         {showDeleteConfirmation && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md mx-4">
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md">
               <div className="flex items-center gap-3 mb-4">
                 <div className="p-3 bg-red-100 rounded-full">
                   <Trash2 className="h-6 w-6 text-red-600" />

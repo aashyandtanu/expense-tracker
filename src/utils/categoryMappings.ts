@@ -1,7 +1,7 @@
 import { CategoryMapping, CustomMapping } from '../types';
 
-// Base default mappings - these should never be modified directly
-const BASE_DEFAULT_MAPPINGS: CategoryMapping = {
+// Suggested mappings - these are just suggestions for users
+export const SUGGESTED_MAPPINGS: CategoryMapping = {
   // Food & Dining
   'zomato': 'Food & Dining',
   'swiggy': 'Food & Dining',
@@ -20,11 +20,16 @@ const BASE_DEFAULT_MAPPINGS: CategoryMapping = {
   'myntra': 'Shopping',
   'ajio': 'Shopping',
   'nykaa': 'Shopping',
-  'big basket': 'Groceries',
-  'grofers': 'Groceries',
+  'savana': 'Shopping',
   'reliance': 'Shopping',
   'shopping': 'Shopping',
   'mall': 'Shopping',
+  
+  // Groceries
+  'big basket': 'Groceries',
+  'grofers': 'Groceries',
+  'blinkit': 'Groceries',
+  'zepto': 'Groceries',
   
   // Transportation
   'uber': 'Transportation',
@@ -73,10 +78,10 @@ const BASE_DEFAULT_MAPPINGS: CategoryMapping = {
   'bonus': 'Bonus',
   'dividend': 'Investment Returns',
   'interest': 'Investment Returns',
-  'deposit': 'Credits',
-  'transfer in': 'Transfers',
+  'refund': 'Refunds',
+  'cashback': 'Cashback',
   
-  // Banking
+  // Banking & Digital Payments
   'atm': 'Banking',
   'bank': 'Banking',
   'transfer': 'Transfers',
@@ -85,7 +90,6 @@ const BASE_DEFAULT_MAPPINGS: CategoryMapping = {
   'phonepe': 'UPI/Digital Payments',
   'gpay': 'UPI/Digital Payments',
   'googlepay': 'UPI/Digital Payments',
-  'digital payment': 'UPI/Digital Payments',
 };
 
 export const categoryColors: { [key: string]: string } = {
@@ -100,243 +104,110 @@ export const categoryColors: { [key: string]: string } = {
   'Bonus': '#00B894',
   'Investment Returns': '#6C5CE7',
   'Credits': '#A29BFE',
-  'Deposits': '#00B894',
+  'Refunds': '#74B9FF',
+  'Cashback': '#00CEC9',
   'Banking': '#2D3436',
   'Transfers': '#636E72',
   'UPI/Digital Payments': '#E17055',
   'Miscellaneous': '#B2BEC3',
 };
 
-// Storage keys
-const CUSTOM_MAPPINGS_KEY = 'expense-tracker-custom-mappings';
-const DEFAULT_MODIFICATIONS_KEY = 'expense-tracker-default-modifications';
-const DELETED_DEFAULTS_KEY = 'expense-tracker-deleted-defaults';
+// Storage key for user mappings
+const USER_MAPPINGS_KEY = 'expense-tracker-user-mappings';
 
-// Load custom mappings from localStorage
-export function loadCustomMappings(): CustomMapping[] {
+// Load user mappings from localStorage
+export function loadUserMappings(): CategoryMapping {
   try {
-    const saved = localStorage.getItem(CUSTOM_MAPPINGS_KEY);
-    if (saved) {
-      const mappings = JSON.parse(saved);
-      if (Array.isArray(mappings)) {
-        return mappings.filter(mapping => 
-          mapping && 
-          typeof mapping === 'object' && 
-          mapping.id && 
-          mapping.keyword && 
-          mapping.category &&
-          typeof mapping.isActive === 'boolean'
-        );
-      }
-    }
-  } catch (error) {
-    console.error('Error loading custom mappings:', error);
-    localStorage.removeItem(CUSTOM_MAPPINGS_KEY);
-  }
-  return [];
-}
-
-// Save custom mappings to localStorage
-export function saveCustomMappings(mappings: CustomMapping[]): void {
-  try {
-    const validMappings = mappings.filter(mapping => 
-      mapping && 
-      typeof mapping === 'object' && 
-      mapping.id && 
-      mapping.keyword && 
-      mapping.category &&
-      typeof mapping.isActive === 'boolean'
-    );
-    
-    localStorage.setItem(CUSTOM_MAPPINGS_KEY, JSON.stringify(validMappings));
-    console.log('Custom mappings saved:', validMappings.length);
-  } catch (error) {
-    console.error('Error saving custom mappings:', error);
-  }
-}
-
-// Load deleted default keywords
-function loadDeletedDefaults(): Set<string> {
-  try {
-    const saved = localStorage.getItem(DELETED_DEFAULTS_KEY);
-    return saved ? new Set(JSON.parse(saved)) : new Set();
-  } catch (error) {
-    console.error('Error loading deleted defaults:', error);
-    localStorage.removeItem(DELETED_DEFAULTS_KEY);
-    return new Set();
-  }
-}
-
-// Save deleted default keywords
-function saveDeletedDefaults(deletedKeywords: Set<string>): void {
-  try {
-    localStorage.setItem(DELETED_DEFAULTS_KEY, JSON.stringify(Array.from(deletedKeywords)));
-    console.log('Deleted defaults saved:', deletedKeywords.size);
-  } catch (error) {
-    console.error('Error saving deleted defaults:', error);
-  }
-}
-
-// Load default mapping modifications
-function loadDefaultModifications(): CategoryMapping {
-  try {
-    const saved = localStorage.getItem(DEFAULT_MODIFICATIONS_KEY);
+    const saved = localStorage.getItem(USER_MAPPINGS_KEY);
     return saved ? JSON.parse(saved) : {};
   } catch (error) {
-    console.error('Error loading default modifications:', error);
-    localStorage.removeItem(DEFAULT_MODIFICATIONS_KEY);
+    console.error('Error loading user mappings:', error);
+    localStorage.removeItem(USER_MAPPINGS_KEY);
     return {};
   }
 }
 
-// Save default mapping modifications
-function saveDefaultModifications(modifications: CategoryMapping): void {
+// Save user mappings to localStorage
+export function saveUserMappings(mappings: CategoryMapping): void {
   try {
-    localStorage.setItem(DEFAULT_MODIFICATIONS_KEY, JSON.stringify(modifications));
-    console.log('Default modifications saved:', Object.keys(modifications).length);
+    localStorage.setItem(USER_MAPPINGS_KEY, JSON.stringify(mappings));
+    console.log('User mappings saved:', Object.keys(mappings).length);
+    
+    // Dispatch event to notify components
+    window.dispatchEvent(new CustomEvent('categoryMappingsUpdated'));
   } catch (error) {
-    console.error('Error saving default modifications:', error);
+    console.error('Error saving user mappings:', error);
   }
 }
 
-// Get current default mappings (base + modifications - deletions)
-export function getCurrentDefaultMappings(): CategoryMapping {
-  const deletedKeywords = loadDeletedDefaults();
-  const modifications = loadDefaultModifications();
-  const result: CategoryMapping = {};
+// Get all active mappings (user mappings take precedence)
+export function getActiveMappings(): CategoryMapping {
+  const userMappings = loadUserMappings();
   
-  // Start with base mappings, excluding deleted ones
-  Object.entries(BASE_DEFAULT_MAPPINGS).forEach(([keyword, category]) => {
-    if (!deletedKeywords.has(keyword)) {
-      result[keyword] = category;
-    }
-  });
-  
-  // Apply modifications
-  Object.entries(modifications).forEach(([keyword, category]) => {
-    if (!deletedKeywords.has(keyword)) {
-      result[keyword] = category;
-    }
-  });
-  
-  return result;
-}
-
-// Update default mappings
-export function updateDefaultMappings(newMappings: CategoryMapping): void {
-  const deletedKeywords = new Set<string>();
-  const modifications: CategoryMapping = {};
-  
-  // Find deletions (keywords in base but not in new mappings)
-  Object.keys(BASE_DEFAULT_MAPPINGS).forEach(keyword => {
-    if (!newMappings.hasOwnProperty(keyword)) {
-      deletedKeywords.add(keyword);
-    }
-  });
-  
-  // Find modifications (keywords with different categories than base)
-  Object.entries(newMappings).forEach(([keyword, category]) => {
-    if (BASE_DEFAULT_MAPPINGS.hasOwnProperty(keyword)) {
-      if (BASE_DEFAULT_MAPPINGS[keyword] !== category) {
-        modifications[keyword] = category;
-      }
-    } else {
-      // New keyword not in base defaults
-      modifications[keyword] = category;
-    }
-  });
-  
-  // Save changes
-  saveDeletedDefaults(deletedKeywords);
-  saveDefaultModifications(modifications);
-  
-  console.log('Default mappings updated:', {
-    deletions: deletedKeywords.size,
-    modifications: Object.keys(modifications).length
-  });
-}
-
-// Delete a default mapping
-export function deleteDefaultMapping(keyword: string): void {
-  const deletedKeywords = loadDeletedDefaults();
-  deletedKeywords.add(keyword);
-  saveDeletedDefaults(deletedKeywords);
-  
-  // Also remove from modifications if it exists
-  const modifications = loadDefaultModifications();
-  if (modifications.hasOwnProperty(keyword)) {
-    delete modifications[keyword];
-    saveDefaultModifications(modifications);
+  // If user has no mappings, start with suggested mappings
+  if (Object.keys(userMappings).length === 0) {
+    return { ...SUGGESTED_MAPPINGS };
   }
   
-  console.log('Default mapping deleted:', keyword);
+  return userMappings;
 }
 
-// Add or update a default mapping
-export function updateDefaultMapping(keyword: string, category: string): void {
-  const deletedKeywords = loadDeletedDefaults();
-  const modifications = loadDefaultModifications();
-  
-  // Remove from deleted list if it was deleted
-  if (deletedKeywords.has(keyword)) {
-    deletedKeywords.delete(keyword);
-    saveDeletedDefaults(deletedKeywords);
+// Add or update a mapping
+export function addOrUpdateMapping(keyword: string, category: string): void {
+  const mappings = loadUserMappings();
+  mappings[keyword.toLowerCase().trim()] = category.trim();
+  saveUserMappings(mappings);
+}
+
+// Delete a mapping
+export function deleteMapping(keyword: string): void {
+  const mappings = loadUserMappings();
+  delete mappings[keyword.toLowerCase().trim()];
+  saveUserMappings(mappings);
+}
+
+// Initialize user mappings with suggested ones (only if empty)
+export function initializeUserMappings(): void {
+  const userMappings = loadUserMappings();
+  if (Object.keys(userMappings).length === 0) {
+    saveUserMappings({ ...SUGGESTED_MAPPINGS });
   }
-  
-  // Check if this is different from base default
-  if (BASE_DEFAULT_MAPPINGS.hasOwnProperty(keyword)) {
-    if (BASE_DEFAULT_MAPPINGS[keyword] !== category) {
-      modifications[keyword] = category;
-    } else {
-      // Same as base, remove from modifications
-      delete modifications[keyword];
-    }
-  } else {
-    // New keyword
-    modifications[keyword] = category;
-  }
-  
-  saveDefaultModifications(modifications);
-  console.log('Default mapping updated:', keyword, '→', category);
 }
 
-// Get combined mappings for categorization (default + active custom)
-export function getCombinedMappings(): CategoryMapping {
-  const defaultMappings = getCurrentDefaultMappings();
-  const customMappings = loadCustomMappings();
-  const combined = { ...defaultMappings };
-  
-  // Apply active custom mappings (they override defaults)
-  customMappings
-    .filter(mapping => mapping.isActive)
-    .forEach(mapping => {
-      combined[mapping.keyword.toLowerCase()] = mapping.category;
-    });
-  
-  return combined;
-}
-
-// Categorize transaction using combined mappings
+// Categorize transaction using active mappings
 export function categorizeTransaction(description: string): string {
-  const lowerDescription = description.toLowerCase();
-  const mappings = getCombinedMappings();
+  const lowerDescription = description.toLowerCase().trim();
+  const mappings = getActiveMappings();
   
-  // First check for exact matches
+  // Check for exact keyword matches first
   for (const [keyword, category] of Object.entries(mappings)) {
     if (lowerDescription.includes(keyword.toLowerCase())) {
       return category;
     }
   }
   
-  // If no match found, try partial matching with common patterns
+  // Enhanced credit transaction detection
+  if (isCreditTransaction(description)) {
+    // Check for specific credit types
+    if (isSalaryTransaction(description)) return 'Salary';
+    if (isBonusTransaction(description)) return 'Bonus';
+    if (isInvestmentReturn(description)) return 'Investment Returns';
+    if (isRefundTransaction(description)) return 'Refunds';
+    if (isCashbackTransaction(description)) return 'Cashback';
+    
+    // Default to Credits for other credit transactions
+    return 'Credits';
+  }
+  
+  // Fallback patterns for unmatched transactions
   const patterns = [
-    { pattern: /salary|wage|pay(?:ment)?/i, category: 'Salary' },
-    { pattern: /food|restaurant|cafe|dining/i, category: 'Food & Dining' },
-    { pattern: /shop|store|mall|purchase/i, category: 'Shopping' },
-    { pattern: /fuel|petrol|gas|transport/i, category: 'Transportation' },
-    { pattern: /medical|health|doctor|pharmacy/i, category: 'Healthcare' },
-    { pattern: /bill|utility|electric|water/i, category: 'Bills & Utilities' },
-    { pattern: /entertainment|movie|game|music/i, category: 'Entertainment' },
+    { pattern: /food|restaurant|cafe|dining|meal/i, category: 'Food & Dining' },
+    { pattern: /shop|store|mall|purchase|buy/i, category: 'Shopping' },
+    { pattern: /fuel|petrol|gas|transport|taxi|uber|ola/i, category: 'Transportation' },
+    { pattern: /medical|health|doctor|pharmacy|hospital/i, category: 'Healthcare' },
+    { pattern: /bill|utility|electric|water|internet|mobile/i, category: 'Bills & Utilities' },
+    { pattern: /entertainment|movie|game|music|netflix/i, category: 'Entertainment' },
+    { pattern: /grocery|vegetables|fruits|supermarket/i, category: 'Groceries' },
   ];
   
   for (const { pattern, category } of patterns) {
@@ -348,36 +219,107 @@ export function categorizeTransaction(description: string): string {
   return 'Miscellaneous';
 }
 
+// Helper functions for credit transaction categorization
+function isCreditTransaction(description: string): boolean {
+  const lowerDesc = description.toLowerCase();
+  const creditKeywords = [
+    'salary', 'sal', 'wage', 'pay', 'deposit', 'credit', 'credited',
+    'interest', 'dividend', 'bonus', 'transfer in', 'received',
+    'incoming', 'refund', 'cashback', 'reward'
+  ];
+  
+  return creditKeywords.some(keyword => lowerDesc.includes(keyword));
+}
+
+function isSalaryTransaction(description: string): boolean {
+  const lowerDesc = description.toLowerCase();
+  return ['salary', 'sal', 'wage', 'payroll', 'monthly pay'].some(keyword => 
+    lowerDesc.includes(keyword)
+  );
+}
+
+function isBonusTransaction(description: string): boolean {
+  const lowerDesc = description.toLowerCase();
+  return ['bonus', 'incentive', 'commission', 'reward'].some(keyword => 
+    lowerDesc.includes(keyword)
+  );
+}
+
+function isInvestmentReturn(description: string): boolean {
+  const lowerDesc = description.toLowerCase();
+  return ['dividend', 'interest', 'investment', 'mutual fund', 'sip'].some(keyword => 
+    lowerDesc.includes(keyword)
+  );
+}
+
+function isRefundTransaction(description: string): boolean {
+  const lowerDesc = description.toLowerCase();
+  return ['refund', 'return', 'reversal', 'chargeback'].some(keyword => 
+    lowerDesc.includes(keyword)
+  );
+}
+
+function isCashbackTransaction(description: string): boolean {
+  const lowerDesc = description.toLowerCase();
+  return ['cashback', 'cash back', 'reward', 'points'].some(keyword => 
+    lowerDesc.includes(keyword)
+  );
+}
+
 // Get all available categories
 export function getAllCategories(): string[] {
-  const defaultMappings = getCurrentDefaultMappings();
-  const customMappings = loadCustomMappings();
-  
-  const defaultCategories = [...new Set(Object.values(defaultMappings))];
-  const customCategories = [...new Set(customMappings.map(m => m.category))];
+  const mappings = getActiveMappings();
+  const categories = [...new Set(Object.values(mappings))];
   const colorCategories = Object.keys(categoryColors);
   
-  const allCategories = [...new Set([...defaultCategories, ...customCategories, ...colorCategories])];
+  const allCategories = [...new Set([...categories, ...colorCategories])];
   return allCategories.sort();
 }
 
-// Reset all mappings to base state
+// Reset all mappings
 export function resetAllMappings(): void {
-  localStorage.removeItem(CUSTOM_MAPPINGS_KEY);
-  localStorage.removeItem(DEFAULT_MODIFICATIONS_KEY);
-  localStorage.removeItem(DELETED_DEFAULTS_KEY);
-  console.log('All mappings reset to base state');
+  localStorage.removeItem(USER_MAPPINGS_KEY);
+  console.log('All mappings reset');
+  window.dispatchEvent(new CustomEvent('categoryMappingsUpdated'));
 }
 
-// Reset only default mappings to base state
+// Get suggested mappings for UI
+export function getSuggestedMappings(): CategoryMapping {
+  return { ...SUGGESTED_MAPPINGS };
+}
+
+// Legacy support - remove these exports
+export const defaultCategoryMappings = SUGGESTED_MAPPINGS;
+export const BASE_DEFAULT_MAPPINGS = SUGGESTED_MAPPINGS;
+
+// Remove all the complex default mapping functions
+export function loadCustomMappings(): CustomMapping[] {
+  return [];
+}
+
+export function saveCustomMappings(mappings: CustomMapping[]): void {
+  // Convert custom mappings to user mappings format
+  const userMappings = loadUserMappings();
+  mappings.forEach(mapping => {
+    if (mapping.isActive) {
+      userMappings[mapping.keyword.toLowerCase()] = mapping.category;
+    }
+  });
+  saveUserMappings(userMappings);
+}
+
+export function getCurrentDefaultMappings(): CategoryMapping {
+  return getActiveMappings();
+}
+
+export function updateDefaultMappings(newMappings: CategoryMapping): void {
+  saveUserMappings(newMappings);
+}
+
 export function resetDefaultMappings(): void {
-  localStorage.removeItem(DEFAULT_MODIFICATIONS_KEY);
-  localStorage.removeItem(DELETED_DEFAULTS_KEY);
-  console.log('Default mappings reset to base state');
+  resetAllMappings();
 }
 
-// Export base mappings for reference
-export { BASE_DEFAULT_MAPPINGS };
-
-// Legacy support - these are kept for backward compatibility
-export const defaultCategoryMappings = BASE_DEFAULT_MAPPINGS;
+export function getCombinedMappings(): CategoryMapping {
+  return getActiveMappings();
+}

@@ -376,48 +376,52 @@ export async function saveTransactionsToGoogleSheets(
       });
 
       // Prepare data for Google Sheets
-      const values = monthTransactions.map((transaction) => [
-        transaction.date,
-        transaction.description,
-        transaction.amount,
-        transaction.type === "credit" ? "Credit" : "Debit",
-        transaction.category,
-      ]);
+      const values = monthTransactions
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()) // Sort by date descending
+        .map((transaction) => [
+          transaction.date,
+          transaction.description,
+          transaction.amount,
+          transaction.type === "credit" ? "Credit" : "Debit",
+          transaction.category,
+        ]);
 
-      // Write data to sheet
-      await window.gapi.client.sheets.spreadsheets.values.update({
-        spreadsheetId: spreadsheetId,
-        range: `${month}!A2:E${values.length + 1}`,
-        valueInputOption: "RAW",
-        values: values,
-      });
+      if (values.length > 0) {
+        // Write data to sheet
+        await window.gapi.client.sheets.spreadsheets.values.update({
+          spreadsheetId: spreadsheetId,
+          range: `${month}!A2:E${values.length + 1}`,
+          valueInputOption: "RAW",
+          values: values,
+        });
 
-      // Format amount column as currency
-      await window.gapi.client.sheets.spreadsheets.batchUpdate({
-        spreadsheetId: spreadsheetId,
-        requests: [
-          {
-            repeatCell: {
-              range: {
-                sheetId: await getSheetId(spreadsheetId, month),
-                startRowIndex: 1,
-                endRowIndex: values.length + 1,
-                startColumnIndex: 2,
-                endColumnIndex: 3,
-              },
-              cell: {
-                userEnteredFormat: {
-                  numberFormat: {
-                    type: "CURRENCY",
-                    pattern: "₹#,##0.00",
+        // Format amount column as currency
+        await window.gapi.client.sheets.spreadsheets.batchUpdate({
+          spreadsheetId: spreadsheetId,
+          requests: [
+            {
+              repeatCell: {
+                range: {
+                  sheetId: await getSheetId(spreadsheetId, month),
+                  startRowIndex: 1,
+                  endRowIndex: values.length + 1,
+                  startColumnIndex: 2,
+                  endColumnIndex: 3,
+                },
+                cell: {
+                  userEnteredFormat: {
+                    numberFormat: {
+                      type: "CURRENCY",
+                      pattern: "₹#,##0.00",
+                    },
                   },
                 },
+                fields: "userEnteredFormat.numberFormat",
               },
-              fields: "userEnteredFormat.numberFormat",
             },
-          },
-        ],
-      });
+          ],
+        });
+      }
     }
   } catch (error) {
     console.error("Failed to save transactions to Google Sheets:", error);
@@ -548,13 +552,15 @@ export function exportTransactionsToExcel(
   Object.entries(transactionsByMonth).forEach(([month, monthTransactions]) => {
     const data = [
       ["Date", "Description", "Amount", "Type", "Category"],
-      ...monthTransactions.map((t) => [
-        t.date,
-        t.description,
-        t.amount,
-        t.type === "credit" ? "Credit" : "Debit",
-        t.category,
-      ]),
+      ...monthTransactions
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+        .map((t) => [
+          t.date,
+          t.description,
+          t.amount,
+          t.type === "credit" ? "Credit" : "Debit",
+          t.category,
+        ]),
     ];
 
     const worksheet = XLSX.utils.aoa_to_sheet(data);
